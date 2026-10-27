@@ -1037,8 +1037,8 @@ export function FlightBookerWorkspace({
           <div className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
             <h2 className="font-semibold">Your Searches</h2>
             <p className="mt-0.5 text-xs text-muted">
-              Monitoring runs about every 6 hours when configured (respects provider
-              limits).
+              Monitoring runs once daily when configured (Vercel Hobby cron limit;
+              respects provider rate limits).
             </p>
             <div className="mt-3 space-y-3">
               {searches.length === 0 ? (
