@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowUp,
   Loader2,
+  Route,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -15,7 +16,7 @@ import {
   updateItineraryItemAction,
 } from "@/app/actions/itinerary";
 import { updateTripAction } from "@/app/actions/trips";
-import { WaypointMap } from "@/components/map/waypoint-map";
+import { WaypointMap, type MapRouteSegment } from "@/components/map/waypoint-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +78,9 @@ export function ItineraryWorkspace({
   const [suggestError, setSuggestError] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [routes, setRoutes] = useState<MapRouteSegment[]>([]);
+  const [routing, setRouting] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
 
   const pins = useMemo(
     () =>
@@ -179,6 +183,76 @@ export function ItineraryWorkspace({
     await deleteItineraryItemAction(trip.id, deleteId);
     setItems((prev) => prev.filter((i) => i.id !== deleteId));
     setDeleteId(null);
+  }
+
+  async function makeRoute() {
+    setRouteError(null);
+    const ordered = [...items]
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .filter((i) => i.latitude != null && i.longitude != null);
+
+    if (ordered.length < 2) {
+      setRouteError("Add at least two places with locations to build a route.");
+      return;
+    }
+
+    setRouting(true);
+    try {
+      const segments: MapRouteSegment[] = [];
+      const failures: string[] = [];
+
+      for (let i = 0; i < ordered.length - 1; i++) {
+        const from = ordered[i];
+        const to = ordered[i + 1];
+        const res = await fetch("/api/geo/route", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: { lat: from.latitude, lon: from.longitude },
+            to: { lat: to.latitude, lon: to.longitude },
+            mode: "car",
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok || !Array.isArray(data.geometry) || !data.geometry.length) {
+          failures.push(`${from.title} → ${to.title}`);
+          // Straight-line fallback so the map still shows a connection
+          segments.push({
+            id: `${from.id}-${to.id}`,
+            positions: [
+              [from.latitude!, from.longitude!],
+              [to.latitude!, to.longitude!],
+            ],
+            label: `${from.title} → ${to.title} (approximate)`,
+          });
+          continue;
+        }
+
+        const mins = Math.round((data.durationSeconds ?? 0) / 60);
+        const km =
+          typeof data.distanceMeters === "number"
+            ? (data.distanceMeters / 1000).toFixed(1)
+            : null;
+        segments.push({
+          id: `${from.id}-${to.id}`,
+          positions: data.geometry as Array<[number, number]>,
+          label: `${from.title} → ${to.title}${
+            mins ? ` · ${mins} min` : ""
+          }${km ? ` · ${km} km` : ""}`,
+        });
+      }
+
+      setRoutes(segments);
+      if (failures.length) {
+        setRouteError(
+          `Could not calculate full road routes for: ${failures.join(", ")}. Showing approximate lines where needed.`,
+        );
+      }
+    } catch {
+      setRouteError("Unable to build routes. Please try again.");
+    } finally {
+      setRouting(false);
+    }
   }
 
   async function runSuggest() {
@@ -298,6 +372,25 @@ export function ItineraryWorkspace({
             role={role}
             currentUserId={currentUserId}
           />
+          <Button
+            variant="secondary"
+            onClick={() => void makeRoute()}
+            disabled={routing}
+          >
+            <Route className="h-4 w-4" />
+            {routing ? "Building route…" : "Make route"}
+          </Button>
+          {routes.length > 0 ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setRoutes([]);
+                setRouteError(null);
+              }}
+            >
+              Clear route
+            </Button>
+          ) : null}
           {canEdit ? (
             <Button onClick={() => void runSuggest()} disabled={suggesting}>
               <Sparkles className="h-4 w-4" />
@@ -306,6 +399,12 @@ export function ItineraryWorkspace({
           ) : null}
         </div>
       </div>
+
+      {routeError ? (
+        <div className="rounded-[12px] border border-border bg-card p-3 text-sm text-warning">
+          {routeError}
+        </div>
+      ) : null}
 
       {suggestError ? (
         <div className="rounded-[12px] border border-border bg-card p-3 text-sm text-destructive">
@@ -618,6 +717,7 @@ export function ItineraryWorkspace({
             tripId={trip.id}
             onAddPoi={canEdit ? addPoi : undefined}
             enablePoi
+            routes={routes}
             height="100%"
           />
         </section>

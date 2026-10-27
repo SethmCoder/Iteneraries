@@ -6,6 +6,7 @@ import {
   TileLayer,
   Marker,
   Popup,
+  Polyline,
   useMap,
   useMapEvents,
 } from "react-leaflet";
@@ -26,6 +27,12 @@ export type MapItineraryPin = {
   href?: string;
 };
 
+export type MapRouteSegment = {
+  id: string;
+  positions: Array<[number, number]>;
+  label?: string;
+};
+
 type WaypointMapProps = {
   pins: MapItineraryPin[];
   selectedPinId?: string | null;
@@ -33,6 +40,7 @@ type WaypointMapProps = {
   tripId?: string | null;
   onAddPoi?: (place: PoiPlace) => Promise<void> | void;
   enablePoi?: boolean;
+  routes?: MapRouteSegment[];
   className?: string;
   height?: string;
 };
@@ -45,20 +53,30 @@ const itineraryIcon = (selected: boolean) =>
     iconAnchor: [8, 8],
   });
 
-function FitBounds({ pins }: { pins: MapItineraryPin[] }) {
+function FitBounds({
+  pins,
+  routes = [],
+}: {
+  pins: MapItineraryPin[];
+  routes?: MapRouteSegment[];
+}) {
   const map = useMap();
   useEffect(() => {
-    if (!pins.length) {
+    const points: Array<[number, number]> = [
+      ...pins.map((p) => [p.lat, p.lng] as [number, number]),
+      ...routes.flatMap((r) => r.positions),
+    ];
+    if (!points.length) {
       map.setView([20, 0], 2);
       return;
     }
-    if (pins.length === 1) {
-      map.setView([pins[0].lat, pins[0].lng], 12);
+    if (points.length === 1) {
+      map.setView(points[0], 12);
       return;
     }
-    const bounds = L.latLngBounds(pins.map((p) => [p.lat, p.lng]));
+    const bounds = L.latLngBounds(points);
     map.fitBounds(bounds.pad(0.2));
-  }, [map, pins]);
+  }, [map, pins, routes]);
   return null;
 }
 
@@ -333,6 +351,7 @@ export default function MapInner({
   tripId,
   onAddPoi,
   enablePoi = true,
+  routes = [],
   className,
   height = "100%",
 }: WaypointMapProps) {
@@ -364,9 +383,28 @@ export default function MapInner({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <FitBounds pins={pins} />
+        <FitBounds pins={pins} routes={routes} />
         <CenterOnSelected pins={pins} selectedPinId={selectedPinId} />
         <FlyToController target={flyTarget} />
+        {routes.map((route) => (
+          <Polyline
+            key={route.id}
+            positions={route.positions}
+            pathOptions={{
+              color: "#1616C9",
+              weight: 5,
+              opacity: 0.85,
+              lineJoin: "round",
+              lineCap: "round",
+            }}
+          >
+            {route.label ? (
+              <Popup>
+                <p className="text-sm font-medium text-[#1F2937]">{route.label}</p>
+              </Popup>
+            ) : null}
+          </Polyline>
+        ))}
         {pins.map((pin) => (
           <Marker
             key={pin.id}

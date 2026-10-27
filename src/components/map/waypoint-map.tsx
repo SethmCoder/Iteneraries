@@ -12,6 +12,8 @@ const MapInner = dynamic(() => import("./map-inner"), {
   ),
 });
 
+export type { MapRouteSegment, MapItineraryPin } from "./map-inner";
+
 export function WaypointMap(props: ComponentProps<typeof MapInner>) {
   return <MapInner {...props} />;
 }
