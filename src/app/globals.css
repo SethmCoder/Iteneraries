@@ -1,0 +1,119 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  --brand: #1616c9;
+  --brand-hover: #1010a3;
+  --brand-light: #eeeeff;
+  --page-bg: #f7f8fc;
+  --card: #ffffff;
+  --text: #1f2937;
+  --text-secondary: #6b7280;
+  --border: #e5e7eb;
+  --input-border: #d1d5db;
+  --focus: #818cf8;
+  --success: #15803d;
+  --warning: #b45309;
+  --destructive: #dc2626;
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --background: var(--page-bg);
+  --foreground: var(--text);
+}
+
+@theme inline {
+  --color-background: var(--page-bg);
+  --color-foreground: var(--text);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-light: var(--brand-light);
+  --color-card: var(--card);
+  --color-muted: var(--text-secondary);
+  --color-border: var(--border);
+  --color-input: var(--input-border);
+  --color-ring: var(--focus);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --font-sans: var(--font-inter);
+  --radius-card: 12px;
+  --radius-control: 8px;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 400;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 700;
+  color: var(--text);
+}
+
+label,
+.font-label {
+  font-weight: 600;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.leaflet-container {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  border-radius: var(--radius-card);
+}
+
+.waypoint-itinerary-marker {
+  background: var(--brand);
+  border: 2px solid white;
+  border-radius: 9999px;
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.waypoint-itinerary-marker.selected {
+  box-shadow: 0 0 0 4px var(--brand-light);
+  background: var(--brand-hover);
+}
+
+.waypoint-poi-marker {
+  background: white;
+  border: 1.5px solid var(--brand);
+  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  color: var(--brand);
+}
+
+.marker-cluster-small,
+.marker-cluster-medium,
+.marker-cluster-large {
+  background: color-mix(in srgb, var(--brand) 25%, transparent);
+}
+
+.marker-cluster-small div,
+.marker-cluster-medium div,
+.marker-cluster-large div {
+  background: var(--brand);
+  color: white;
+  font-family: var(--font-inter), sans-serif;
+  font-weight: 600;
+}
