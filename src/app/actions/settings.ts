@@ -44,6 +44,11 @@ export async function updatePreferencesAction(input: {
   distance_unit: "km" | "mi";
   timezone_display: "destination" | "home" | "utc";
   auto_confirm_imports: boolean;
+  award_check_enabled?: boolean;
+  award_check_timezone?: string;
+  award_check_start_minute?: number;
+  award_check_end_minute?: number;
+  award_approve_to_book?: boolean;
 }) {
   const supabase = await createClient();
   const {
@@ -51,12 +56,25 @@ export async function updatePreferencesAction(input: {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
+  const start = input.award_check_start_minute;
+  const end = input.award_check_end_minute;
+  if (
+    start != null &&
+    (start < 0 || start >= 1440 || !Number.isInteger(start))
+  ) {
+    throw new Error("Invalid award check start time");
+  }
+  if (end != null && (end < 0 || end >= 1440 || !Number.isInteger(end))) {
+    throw new Error("Invalid award check end time");
+  }
+
   const { error } = await supabase.from("user_preferences").upsert({
     user_id: user.id,
     ...input,
   });
   if (error) throw new Error(error.message);
   revalidatePath("/settings");
+  revalidatePath("/flights");
 }
 
 export async function uploadAvatarAction(formData: FormData) {

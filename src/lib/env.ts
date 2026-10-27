@@ -117,6 +117,32 @@ export function getAwardWalletApiKey(): string | null {
   return process.env.AWARDWALLET_API_KEY?.trim() || null;
 }
 
+/**
+ * AwardWallet Web Parsing auth (`username:password` for X-Authentication).
+ * Prefer AWARDWALLET_WEB_USER + AWARDWALLET_WEB_PASSWORD, or AWARDWALLET_WEB_AUTH.
+ */
+export function getAwardWalletWebAuth(): string | null {
+  const combined = process.env.AWARDWALLET_WEB_AUTH?.trim();
+  if (combined?.includes(":")) return combined;
+  const user = process.env.AWARDWALLET_WEB_USER?.trim();
+  const pass = process.env.AWARDWALLET_WEB_PASSWORD?.trim();
+  if (user && pass) return `${user}:${pass}`;
+  return null;
+}
+
+export function isWebParseConfigured(): boolean {
+  return Boolean(getAwardWalletWebAuth());
+}
+
 export function isLoyaltyLinkConfigured(): boolean {
   return Boolean(getAwardWalletApiKey());
+}
+
+/** HMAC secret for approve-to-book email links. */
+export function getApproveTokenSecret(): string | null {
+  return (
+    process.env.APPROVE_TOKEN_SECRET?.trim() ||
+    process.env.CRON_SECRET?.trim() ||
+    null
+  );
 }

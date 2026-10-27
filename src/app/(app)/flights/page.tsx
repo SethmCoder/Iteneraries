@@ -9,6 +9,7 @@ import {
   isAwardSearchConfigured,
   isEmailImportConfigured,
   isLoyaltyLinkConfigured,
+  isWebParseConfigured,
 } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import type {
@@ -50,6 +51,7 @@ export default async function FlightsPage({
         balances={demoLoyaltyBalances()}
         loyaltyConnection={null}
         loyaltyLinkConfigured={false}
+        webParseConfigured={false}
         tripId={tripId}
         awardConfigured={isAwardSearchConfigured()}
         emailForward={{ configured: false, address: null }}
@@ -141,6 +143,7 @@ export default async function FlightsPage({
       balances={(balances ?? []) as LoyaltyBalance[]}
       loyaltyConnection={(connection as LoyaltyConnection | null) ?? null}
       loyaltyLinkConfigured={isLoyaltyLinkConfigured()}
+      webParseConfigured={isWebParseConfigured()}
       tripId={tripId}
       awardConfigured={isAwardSearchConfigured()}
       emailForward={{

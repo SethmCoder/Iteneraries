@@ -1,8 +1,13 @@
--- Waypoint initial schema, RLS, indexes, and helpers
+-- Waypoint full schema (single migration — never applied incrementally)
+-- Profiles, trips, itinerary, friends, email import, preferences,
+-- transport, flight booker / loyalty, account billing, RLS, storage, realtime
 
 create extension if not exists "pgcrypto";
 
--- Profiles
+-- ---------------------------------------------------------------------------
+-- Core tables
+-- ---------------------------------------------------------------------------
+
 create table public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   username text not null,
@@ -14,7 +19,6 @@ create table public.profiles (
   constraint profiles_username_unique unique (username)
 );
 
--- Trips
 create table public.trips (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references public.profiles (id) on delete cascade,
@@ -29,6 +33,7 @@ create table public.trips (
   timezone text,
   status text not null default 'planned'
     check (status in ('planned', 'active', 'completed', 'cancelled')),
+  email_slug text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint trips_date_order check (
@@ -144,6 +149,13 @@ create table public.user_preferences (
   timezone_display text not null default 'destination'
     check (timezone_display in ('destination', 'home', 'utc')),
   auto_confirm_imports boolean not null default false,
+  award_check_enabled boolean not null default true,
+  award_check_timezone text not null default 'UTC',
+  award_check_start_minute integer not null default 1080
+    check (award_check_start_minute >= 0 and award_check_start_minute < 1440),
+  award_check_end_minute integer not null default 1260
+    check (award_check_end_minute >= 0 and award_check_end_minute < 1440),
+  award_approve_to_book boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -172,8 +184,141 @@ create table public.email_aliases (
   created_at timestamptz not null default now()
 );
 
+-- ---------------------------------------------------------------------------
+-- Account billing (free renew now; Stripe-ready)
+-- ---------------------------------------------------------------------------
+
+create table public.account_billing (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  plan text not null default 'free' check (plan in ('free', 'pro')),
+  status text not null default 'active'
+    check (status in ('active', 'expired', 'canceled', 'past_due')),
+  billing_provider text not null default 'manual'
+    check (billing_provider in ('none', 'manual', 'stripe')),
+  current_period_start timestamptz not null default now(),
+  current_period_end timestamptz not null default (now() + interval '30 days'),
+  delete_after timestamptz,
+  last_renewed_at timestamptz,
+  reminder_stage text not null default 'none'
+    check (reminder_stage in ('none', 'd7', 'd1', 'expired')),
+  last_reminder_at timestamptz,
+  stripe_customer_id text,
+  stripe_subscription_id text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Flight Booker / loyalty
+-- ---------------------------------------------------------------------------
+
+create table public.loyalty_balances (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  program text not null,
+  balance integer not null default 0 check (balance >= 0),
+  currency_label text not null default 'points',
+  source text not null default 'manual' check (source in ('manual', 'verified')),
+  last_verified_at timestamptz,
+  external_account_id text,
+  provider text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, program)
+);
+
+create table public.loyalty_connections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  provider text not null check (provider in ('awardwallet', 'awardwallet_parse')),
+  external_user_id text not null,
+  access_level text not null default 'read_balances',
+  status text not null default 'connected'
+    check (status in ('connected', 'disconnected', 'error')),
+  last_synced_at timestamptz,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, provider)
+);
+
+create table public.award_searches (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  trip_id uuid references public.trips (id) on delete set null,
+  origin text not null,
+  destination text not null,
+  trip_type text not null default 'one_way' check (trip_type in ('one_way', 'round_trip')),
+  depart_date date,
+  depart_date_end date,
+  return_date date,
+  return_date_end date,
+  passengers integer not null default 1 check (passengers >= 1 and passengers <= 9),
+  cabin text not null default 'economy'
+    check (cabin in ('economy', 'premium_economy', 'business', 'first')),
+  max_points_per_passenger integer,
+  max_points_total integer,
+  max_cash_fees numeric(12, 2),
+  preferred_program text,
+  status text not null default 'setup_required'
+    check (status in ('monitoring', 'match_found', 'paused', 'setup_required')),
+  notify_on_match boolean not null default true,
+  require_booking_approval boolean not null default true,
+  poll_interval_minutes integer not null default 360 check (poll_interval_minutes >= 60),
+  last_checked_at timestamptz,
+  last_notified_fingerprint text,
+  paused_at timestamptz,
+  preferences jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.award_search_programs (
+  search_id uuid not null references public.award_searches (id) on delete cascade,
+  program text not null,
+  primary key (search_id, program)
+);
+
+create table public.award_results (
+  id uuid primary key default gen_random_uuid(),
+  search_id uuid not null references public.award_searches (id) on delete cascade,
+  airline text,
+  flight_numbers text,
+  origin_airport text not null,
+  destination_airport text not null,
+  depart_at timestamptz,
+  arrive_at timestamptz,
+  timezone text,
+  duration_minutes integer,
+  stops integer not null default 0,
+  cabin text,
+  points_per_passenger integer,
+  points_total integer,
+  taxes_fees numeric(12, 2),
+  currency text default 'USD',
+  loyalty_program text,
+  booking_url text,
+  availability_status text not null default 'unverified'
+    check (availability_status in ('confirmed', 'estimated', 'stale', 'unverified')),
+  provider text not null default 'seats_aero',
+  provider_result_id text,
+  fingerprint text not null,
+  compromises text[] not null default '{}',
+  raw jsonb not null default '{}'::jsonb,
+  checked_at timestamptz not null default now(),
+  user_approved_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (search_id, fingerprint)
+);
+
+-- ---------------------------------------------------------------------------
 -- Indexes
+-- ---------------------------------------------------------------------------
+
 create index trips_owner_id_idx on public.trips (owner_id);
+create unique index trips_email_slug_unique
+  on public.trips (email_slug)
+  where email_slug is not null;
 create index trip_members_user_id_idx on public.trip_members (user_id);
 create index trip_members_trip_id_idx on public.trip_members (trip_id);
 create index itinerary_items_trip_sort_idx on public.itinerary_items (trip_id, sort_order, start_at);
@@ -186,8 +331,18 @@ create index profiles_username_lower_idx on public.profiles (lower(username));
 create index imported_emails_user_idx on public.imported_emails (user_id, created_at desc);
 create index imported_emails_booking_idx on public.imported_emails (user_id, normalized_booking_key)
   where normalized_booking_key is not null;
+create index account_billing_period_end_idx on public.account_billing (current_period_end);
+create index account_billing_status_idx on public.account_billing (status);
+create index award_searches_user_idx on public.award_searches (user_id);
+create index award_searches_status_idx on public.award_searches (status);
+create index award_results_search_idx on public.award_results (search_id);
+create index loyalty_balances_user_idx on public.loyalty_balances (user_id);
+create index loyalty_connections_user_idx on public.loyalty_connections (user_id);
 
--- Updated_at helper
+-- ---------------------------------------------------------------------------
+-- Helpers / triggers
+-- ---------------------------------------------------------------------------
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -212,8 +367,16 @@ create trigger reservation_reviews_updated_at before update on public.reservatio
   for each row execute function public.set_updated_at();
 create trigger transport_segments_updated_at before update on public.transport_segments
   for each row execute function public.set_updated_at();
+create trigger account_billing_set_updated_at before update on public.account_billing
+  for each row execute function public.set_updated_at();
+create trigger loyalty_balances_set_updated_at before update on public.loyalty_balances
+  for each row execute function public.set_updated_at();
+create trigger loyalty_connections_set_updated_at before update on public.loyalty_connections
+  for each row execute function public.set_updated_at();
+create trigger award_searches_set_updated_at before update on public.award_searches
+  for each row execute function public.set_updated_at();
 
--- Auth signup → profile + preferences + email alias
+-- Auth signup → profile + preferences + email alias + billing
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -234,7 +397,6 @@ begin
   end if;
   uname := left(uname, 30);
 
-  -- Ensure uniqueness
   while exists (select 1 from public.profiles where username = uname) loop
     uname := left(uname, 24) || '_' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 5);
   end loop;
@@ -246,6 +408,14 @@ begin
 
   alias := replace(gen_random_uuid()::text, '-', '');
   insert into public.email_aliases (user_id, alias_token) values (new.id, alias);
+
+  insert into public.account_billing (
+    user_id, plan, status, billing_provider,
+    current_period_start, current_period_end
+  ) values (
+    new.id, 'free', 'active', 'manual',
+    now(), now() + interval '30 days'
+  );
 
   return new;
 end;
@@ -305,7 +475,10 @@ as $$
   select coalesce(public.trip_role(p_trip_id) = 'owner', false);
 $$;
 
+-- ---------------------------------------------------------------------------
 -- RLS
+-- ---------------------------------------------------------------------------
+
 alter table public.profiles enable row level security;
 alter table public.trips enable row level security;
 alter table public.trip_members enable row level security;
@@ -318,8 +491,14 @@ alter table public.reservation_reviews enable row level security;
 alter table public.user_preferences enable row level security;
 alter table public.transport_segments enable row level security;
 alter table public.email_aliases enable row level security;
+alter table public.account_billing enable row level security;
+alter table public.loyalty_balances enable row level security;
+alter table public.loyalty_connections enable row level security;
+alter table public.award_searches enable row level security;
+alter table public.award_search_programs enable row level security;
+alter table public.award_results enable row level security;
 
--- Profiles policies
+-- Profiles
 create policy "Profiles are viewable by authenticated users"
   on public.profiles for select to authenticated
   using (true);
@@ -474,7 +653,66 @@ create policy "Users view own email alias"
   on public.email_aliases for select to authenticated
   using (user_id = auth.uid());
 
--- Storage bucket for avatars (run in dashboard or via storage API)
+-- Billing
+create policy "Users read own billing"
+  on public.account_billing for select to authenticated
+  using (user_id = auth.uid());
+
+create policy "Users update own billing renew fields"
+  on public.account_billing for update to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+-- Loyalty / awards
+create policy "Users manage own loyalty balances"
+  on public.loyalty_balances for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Users manage own loyalty connections"
+  on public.loyalty_connections for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Users manage own award searches"
+  on public.award_searches for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Users manage own award search programs"
+  on public.award_search_programs for all to authenticated
+  using (
+    exists (
+      select 1 from public.award_searches s
+      where s.id = search_id and s.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.award_searches s
+      where s.id = search_id and s.user_id = auth.uid()
+    )
+  );
+
+create policy "Users manage own award results"
+  on public.award_results for all to authenticated
+  using (
+    exists (
+      select 1 from public.award_searches s
+      where s.id = search_id and s.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.award_searches s
+      where s.id = search_id and s.user_id = auth.uid()
+    )
+  );
+
+-- ---------------------------------------------------------------------------
+-- Storage (avatars)
+-- ---------------------------------------------------------------------------
+
 insert into storage.buckets (id, name, public)
 values ('avatars', 'avatars', true)
 on conflict (id) do nothing;
@@ -504,5 +742,8 @@ create policy "Users delete own avatar"
     and (storage.foldername(name))[1] = auth.uid()::text
   );
 
+-- ---------------------------------------------------------------------------
 -- Realtime
+-- ---------------------------------------------------------------------------
+
 alter publication supabase_realtime add table public.notifications;

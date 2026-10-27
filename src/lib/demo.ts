@@ -40,6 +40,11 @@ export function demoPreferences(): UserPreferences {
     distance_unit: "km",
     timezone_display: "destination",
     auto_confirm_imports: false,
+    award_check_enabled: true,
+    award_check_timezone: "America/Los_Angeles",
+    award_check_start_minute: 1080,
+    award_check_end_minute: 1260,
+    award_approve_to_book: true,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };

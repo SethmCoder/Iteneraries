@@ -6,7 +6,78 @@ import {
   isAwardWalletConfigured,
   mapAwardWalletAccounts,
 } from "@/lib/loyalty/awardwallet";
+import {
+  isWebParseConfigured,
+  parseLoyaltyAccount,
+} from "@/lib/loyalty/web-parse";
+import { rateLimit } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
+import { LOYALTY_PROGRAMS } from "@/lib/flights/loyalty-programs";
+
+export async function linkLoyaltyProgramAction(input: {
+  program: string;
+  username: string;
+  password: string;
+}) {
+  if (!isWebParseConfigured()) {
+    throw new Error(
+      "In-app program linking is not configured. Set AWARDWALLET_WEB_USER and AWARDWALLET_WEB_PASSWORD.",
+    );
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const limited = rateLimit(`loyalty-parse:${user.id}`, 5, 60 * 60_000);
+  if (!limited.ok) {
+    throw new Error("Too many balance link attempts. Try again later.");
+  }
+
+  const programOk = LOYALTY_PROGRAMS.some((p) => p.id === input.program);
+  if (!programOk) throw new Error("Unsupported loyalty program.");
+
+  // Never log credentials — parseLoyaltyAccount uses them in-memory only.
+  const parsed = await parseLoyaltyAccount({
+    program: input.program,
+    username: input.username,
+    password: input.password,
+  });
+
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("loyalty_balances").upsert(
+    {
+      user_id: user.id,
+      program: input.program,
+      balance: parsed.balance,
+      currency_label: parsed.currencyLabel,
+      source: "verified",
+      last_verified_at: now,
+      provider: "awardwallet_parse",
+      external_account_id: parsed.externalAccountId,
+    },
+    { onConflict: "user_id,program" },
+  );
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/flights");
+  revalidatePath("/settings");
+  return {
+    program: input.program,
+    balance: parsed.balance,
+  };
+}
+
+/** Same as link — credentials must be re-entered; nothing is stored. */
+export async function syncLoyaltyProgramAction(input: {
+  program: string;
+  username: string;
+  password: string;
+}) {
+  return linkLoyaltyProgramAction(input);
+}
 
 export async function syncAwardWalletBalancesAction() {
   if (!isAwardWalletConfigured()) {

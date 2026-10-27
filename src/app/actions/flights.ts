@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { isAwardSearchConfigured } from "@/lib/env";
+import { isInAwardCheckWindow } from "@/lib/flights/award-check-window";
 import {
   executeAwardSearch,
   notifyAwardMatches,
@@ -11,6 +12,7 @@ import {
   awardSearchFormSchema,
   loyaltyBalanceSchema,
 } from "@/lib/flights/schema";
+import { rateLimit } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 import type { AwardSearch, AwardSearchStatus } from "@/types/database";
 import { z } from "zod";
@@ -274,4 +276,84 @@ export async function getAwardSearchDetailAction(searchId: string) {
     results: results ?? [],
     programs: (programs ?? []).map((p) => p.program as string),
   };
+}
+
+/**
+ * When the user opens Flight Booker inside their preferred window, run due
+ * monitoring searches once (Hobby cron is only daily).
+ */
+export async function runDueAwardChecksAction() {
+  const { supabase, user } = await requireUser();
+  const limited = rateLimit(`award-due:${user.id}`, 3, 15 * 60_000);
+  if (!limited.ok) {
+    return { checked: 0, skipped: true as const, reason: "rate_limited" };
+  }
+
+  if (!isAwardSearchConfigured()) {
+    return { checked: 0, skipped: true as const, reason: "not_configured" };
+  }
+
+  const { data: prefs } = await supabase
+    .from("user_preferences")
+    .select(
+      "award_check_enabled, award_check_timezone, award_check_start_minute, award_check_end_minute",
+    )
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const now = new Date();
+  if (
+    !isInAwardCheckWindow(now, {
+      award_check_enabled: prefs?.award_check_enabled ?? true,
+      award_check_timezone: prefs?.award_check_timezone ?? "UTC",
+      award_check_start_minute: prefs?.award_check_start_minute ?? 1080,
+      award_check_end_minute: prefs?.award_check_end_minute ?? 1260,
+    })
+  ) {
+    return { checked: 0, skipped: true as const, reason: "outside_window" };
+  }
+
+  const { data: searches } = await supabase
+    .from("award_searches")
+    .select("*")
+    .eq("user_id", user.id)
+    .in("status", ["monitoring", "match_found"])
+    .limit(10);
+
+  let checked = 0;
+  for (const row of searches ?? []) {
+    const search = rowToSearch(row);
+    const intervalMs = Math.max(60, search.poll_interval_minutes) * 60_000;
+    if (
+      search.last_checked_at &&
+      now.getTime() - new Date(search.last_checked_at).getTime() < intervalMs
+    ) {
+      continue;
+    }
+
+    const { data: programRows } = await supabase
+      .from("award_search_programs")
+      .select("program")
+      .eq("search_id", search.id);
+    const programs = (programRows ?? []).map((p) => p.program as string);
+
+    const outcome = await executeAwardSearch(search, programs);
+    checked += 1;
+    await supabase
+      .from("award_searches")
+      .update({
+        status: outcome.status,
+        last_checked_at: now.toISOString(),
+      })
+      .eq("id", search.id)
+      .eq("user_id", user.id);
+
+    if (outcome.options.length) {
+      await persistAwardResults(supabase, search.id, outcome.options);
+      await notifyAwardMatches(supabase, search, outcome.options);
+    }
+  }
+
+  if (checked > 0) revalidateFlights();
+  return { checked, skipped: false as const };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   Copy,
   ExternalLink,
@@ -15,6 +15,7 @@ import {
   deleteAwardSearchAction,
   deleteLoyaltyBalanceAction,
   runAwardSearchAction,
+  runDueAwardChecksAction,
   saveAwardSearchAction,
   saveLoyaltyBalanceAction,
   setAwardSearchPausedAction,
@@ -24,6 +25,7 @@ import {
   syncAwardWalletBalancesAction,
 } from "@/app/actions/loyalty";
 import { AirportInput } from "@/components/flights/airport-input";
+import { ConnectProgramDialog } from "@/components/flights/connect-program-dialog";
 import {
   AirlinePreferenceSelect,
   AlliancePreferenceSelect,
@@ -222,6 +224,7 @@ export function FlightBookerWorkspace({
   balances: initialBalances,
   loyaltyConnection: initialConnection,
   loyaltyLinkConfigured,
+  webParseConfigured,
   tripId,
   awardConfigured,
   emailForward,
@@ -234,6 +237,7 @@ export function FlightBookerWorkspace({
   balances: LoyaltyBalance[];
   loyaltyConnection: LoyaltyConnection | null;
   loyaltyLinkConfigured: boolean;
+  webParseConfigured: boolean;
   tripId: string | null;
   awardConfigured: boolean;
   emailForward: {
@@ -263,6 +267,24 @@ export function FlightBookerWorkspace({
   const [loyaltyProgram, setLoyaltyProgram] = useState("united");
   const [loyaltyBalance, setLoyaltyBalance] = useState("");
   const [copied, setCopied] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [connectMode, setConnectMode] = useState<"link" | "sync">("link");
+  const [connectProgram, setConnectProgram] = useState("singapore");
+
+  useEffect(() => {
+    if (isDemo || !awardConfigured) return;
+    void runDueAwardChecksAction()
+      .then((result) => {
+        if (!result.skipped && result.checked > 0) {
+          setActionMessage(
+            `Ran ${result.checked} award check(s) in your booking window.`,
+          );
+        }
+      })
+      .catch(() => {
+        /* ignore opportunistic check errors */
+      });
+  }, [isDemo, awardConfigured]);
 
   const detailSearch = searches.find((s) => s.id === detailId) ?? null;
   const detailResults = useMemo(() => {
@@ -901,11 +923,22 @@ export function FlightBookerWorkspace({
           <div className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
             <h2 className="font-semibold">Loyalty balances</h2>
             <p className="mt-0.5 text-xs text-muted">
-              Link AwardWallet to pull live balances from programs you already store
-              there. Waypoint never asks for airline passwords. Manual entry remains
-              available as a fallback.
+              Connect a program directly (e.g. KrisFlyer) or sync AwardWallet.
+              Waypoint does not store airline passwords. Manual entry remains a
+              fallback. Award checks run in your Settings booking window.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                disabled={pending || isDemo}
+                onClick={() => {
+                  setConnectMode("link");
+                  setConnectProgram(loyaltyProgram);
+                  setConnectOpen(true);
+                }}
+              >
+                Connect program
+              </Button>
               {loyaltyLinkConfigured ? (
                 loyaltyConnection?.status === "connected" ? (
                   <>
@@ -944,27 +977,31 @@ export function FlightBookerWorkspace({
                       Disconnect
                     </Button>
                     <span className="self-center text-xs text-muted">
-                      Connected
+                      AwardWallet connected
                       {loyaltyConnection.last_synced_at
                         ? ` · synced ${new Date(loyaltyConnection.last_synced_at).toLocaleString()}`
                         : ""}
                     </span>
                   </>
                 ) : (
-                  <Button type="button" asChild>
+                  <Button type="button" variant="secondary" asChild>
                     <a href="/api/loyalty/awardwallet/connect">
                       Connect AwardWallet
                     </a>
                   </Button>
                 )
               ) : (
-                <p className="w-full text-xs text-warning">
-                  Set <code>AWARDWALLET_API_KEY</code> (AwardWallet Business Account
-                  Access API) and register callback{" "}
-                  <code>/api/loyalty/awardwallet/callback</code> to enable live
-                  balance linking.
+                <p className="w-full text-xs text-muted">
+                  Optional: set <code>AWARDWALLET_API_KEY</code> to sync an existing
+                  AwardWallet account.
                 </p>
               )}
+              {!webParseConfigured ? (
+                <p className="w-full text-xs text-warning">
+                  Set <code>AWARDWALLET_WEB_USER</code> /{" "}
+                  <code>AWARDWALLET_WEB_PASSWORD</code> to enable Connect program.
+                </p>
+              ) : null}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <select
@@ -1053,6 +1090,39 @@ export function FlightBookerWorkspace({
                 Save balance
               </Button>
             </div>
+            <ConnectProgramDialog
+              open={connectOpen}
+              onOpenChange={setConnectOpen}
+              initialProgram={connectProgram}
+              mode={connectMode}
+              webParseConfigured={webParseConfigured}
+              disabled={isDemo}
+              onLinked={(result) => {
+                setActionMessage(
+                  `Linked ${result.program}: ${result.balance.toLocaleString()} points.`,
+                );
+                const now = new Date().toISOString();
+                setBalances((prev) => {
+                  const rest = prev.filter((b) => b.program !== result.program);
+                  return [
+                    {
+                      id: crypto.randomUUID(),
+                      user_id: "",
+                      program: result.program,
+                      balance: result.balance,
+                      currency_label: "points",
+                      source: "verified",
+                      last_verified_at: now,
+                      external_account_id: null,
+                      provider: "awardwallet_parse",
+                      created_at: now,
+                      updated_at: now,
+                    },
+                    ...rest,
+                  ];
+                });
+              }}
+            />
             <ul className="mt-3 space-y-2">
               {balances.length === 0 ? (
                 <li className="text-sm text-muted">No balances recorded yet.</li>
@@ -1070,13 +1140,30 @@ export function FlightBookerWorkspace({
                       <p className="text-xs text-muted">
                         {b.balance.toLocaleString()} {b.currency_label} ·{" "}
                         {b.source === "verified"
-                          ? `Verified${b.provider ? ` via ${b.provider}` : ""}`
+                          ? b.provider === "awardwallet_parse"
+                            ? "Verified via Connect"
+                            : `Verified${b.provider ? ` via ${b.provider}` : ""}`
                           : "Manual"}
                         {b.last_verified_at
                           ? ` · ${new Date(b.last_verified_at).toLocaleDateString()}`
                           : ""}
                       </p>
                     </div>
+                    <div className="flex items-center gap-1">
+                    {b.provider === "awardwallet_parse" ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={pending || isDemo}
+                        onClick={() => {
+                          setConnectMode("sync");
+                          setConnectProgram(b.program);
+                          setConnectOpen(true);
+                        }}
+                      >
+                        Sync
+                      </Button>
+                    ) : null}
                     <Button
                       size="icon"
                       variant="ghost"
@@ -1098,6 +1185,7 @@ export function FlightBookerWorkspace({
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
+                    </div>
                   </li>
                 ))
               )}
@@ -1107,8 +1195,8 @@ export function FlightBookerWorkspace({
           <div className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
             <h2 className="font-semibold">Your Searches</h2>
             <p className="mt-0.5 text-xs text-muted">
-              Monitoring runs once daily when configured (Vercel Hobby cron limit;
-              respects provider rate limits).
+              Checks run in your Settings booking window (daily cron + when you open
+              this page). Book quickly when notified — seats can disappear.
             </p>
             <div className="mt-3 space-y-3">
               {searches.length === 0 ? (
@@ -1379,11 +1467,10 @@ export function FlightBookerWorkspace({
       <Dialog open={!!bookUrl} onOpenChange={(o) => !o && setBookUrl(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Continue to booking site?</DialogTitle>
+            <DialogTitle>Approve & open booking site?</DialogTitle>
             <DialogDescription>
-              You are about to leave Waypoint to complete this award booking on the
-              airline or loyalty program site. Waypoint will not redeem points or
-              charge a card. Confirm only if you intend to book.
+              Approve opens the airline booking page. Waypoint does not spend your
+              miles or complete checkout for you — you finish login and taxes there.
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4 flex justify-end gap-2">
@@ -1398,7 +1485,7 @@ export function FlightBookerWorkspace({
                 setBookUrl(null);
               }}
             >
-              Open booking site
+              Approve & open
             </Button>
           </div>
         </DialogContent>

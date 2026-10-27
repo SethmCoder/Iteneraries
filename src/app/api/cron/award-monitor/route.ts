@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCronSecret, isAwardSearchConfigured } from "@/lib/env";
+import { isInAwardCheckWindow } from "@/lib/flights/award-check-window";
 import {
   executeAwardSearch,
   notifyAwardMatches,
@@ -49,13 +50,51 @@ export async function GET(request: Request) {
 
   let checked = 0;
   let matches = 0;
+  let skippedWindow = 0;
   const failures: string[] = [];
+
+  const prefsByUser = new Map<
+    string,
+    {
+      award_check_enabled: boolean;
+      award_check_timezone: string;
+      award_check_start_minute: number;
+      award_check_end_minute: number;
+    }
+  >();
+
+  async function prefsFor(userId: string) {
+    const cached = prefsByUser.get(userId);
+    if (cached) return cached;
+    const { data } = await admin
+      .from("user_preferences")
+      .select(
+        "award_check_enabled, award_check_timezone, award_check_start_minute, award_check_end_minute",
+      )
+      .eq("user_id", userId)
+      .maybeSingle();
+    const prefs = {
+      award_check_enabled: data?.award_check_enabled ?? true,
+      award_check_timezone: data?.award_check_timezone ?? "UTC",
+      award_check_start_minute: data?.award_check_start_minute ?? 1080,
+      award_check_end_minute: data?.award_check_end_minute ?? 1260,
+    };
+    prefsByUser.set(userId, prefs);
+    return prefs;
+  }
 
   for (const row of searches ?? []) {
     const search = {
       ...row,
       preferences: row.preferences ?? {},
     } as AwardSearch;
+
+    const prefs = await prefsFor(search.user_id);
+    if (!isInAwardCheckWindow(new Date(now), prefs)) {
+      skippedWindow += 1;
+      // Do not advance last_checked_at — remains due when window opens.
+      continue;
+    }
 
     const intervalMs = Math.max(60, search.poll_interval_minutes) * 60_000;
     if (
@@ -96,6 +135,7 @@ export async function GET(request: Request) {
     ok: true,
     checked,
     matches,
+    skippedWindow,
     failures,
   });
 }

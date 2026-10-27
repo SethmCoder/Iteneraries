@@ -16,8 +16,31 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { daysUntil } from "@/lib/billing/period";
 import { PASSWORD_POLICY } from "@/lib/constants";
+import {
+  minutesToTimeInput,
+  timeInputToMinutes,
+} from "@/lib/flights/award-check-window";
 import { createClient } from "@/lib/supabase/client";
 import type { AccountBilling, Profile, UserPreferences } from "@/types/database";
+
+const AWARD_TIMEZONES = [
+  "UTC",
+  "America/Los_Angeles",
+  "America/Denver",
+  "America/Chicago",
+  "America/New_York",
+  "America/Toronto",
+  "America/Sao_Paulo",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Asia/Singapore",
+  "Asia/Tokyo",
+  "Asia/Hong_Kong",
+  "Asia/Dubai",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
 
 export function SettingsWorkspace({
   email,
@@ -65,6 +88,21 @@ export function SettingsWorkspace({
   const [modes, setModes] = useState<string[]>(
     preferences?.preferred_transport_modes ?? ["walking", "transit"],
   );
+  const [awardCheckEnabled, setAwardCheckEnabled] = useState(
+    preferences?.award_check_enabled ?? true,
+  );
+  const [awardTz, setAwardTz] = useState(
+    preferences?.award_check_timezone ?? "UTC",
+  );
+  const [awardStart, setAwardStart] = useState(
+    minutesToTimeInput(preferences?.award_check_start_minute ?? 1080),
+  );
+  const [awardEnd, setAwardEnd] = useState(
+    minutesToTimeInput(preferences?.award_check_end_minute ?? 1260),
+  );
+  const [awardApprove, setAwardApprove] = useState(
+    preferences?.award_approve_to_book ?? true,
+  );
 
   async function saveProfile() {
     setError(null);
@@ -93,6 +131,11 @@ export function SettingsWorkspace({
         distance_unit: unit,
         timezone_display: tz,
         auto_confirm_imports: preferences?.auto_confirm_imports ?? false,
+        award_check_enabled: awardCheckEnabled,
+        award_check_timezone: awardTz,
+        award_check_start_minute: timeInputToMinutes(awardStart),
+        award_check_end_minute: timeInputToMinutes(awardEnd),
+        award_approve_to_book: awardApprove,
       });
       setMessage("Preferences saved");
     } catch (e) {
@@ -367,6 +410,79 @@ export function SettingsWorkspace({
             </div>
           </div>
           <Button onClick={() => void savePrefs()}>Save preferences</Button>
+        </div>
+      </section>
+
+      <section
+        id="award-monitoring"
+        className="rounded-[12px] border border-border bg-card p-5 shadow-sm"
+      >
+        <h2 className="font-semibold">Award monitoring</h2>
+        <p className="mt-1 text-sm text-muted">
+          We look for award seats in this window so alerts arrive when you can
+          book. Outside the window, monitoring waits. Opening Flight Booker
+          during the window also runs due checks.
+        </p>
+        <div className="mt-4 space-y-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={awardCheckEnabled}
+              onChange={(e) => setAwardCheckEnabled(e.target.checked)}
+            />
+            Only check awards during my booking window
+          </label>
+          <div className="space-y-1.5">
+            <Label htmlFor="award-tz">Timezone</Label>
+            <select
+              id="award-tz"
+              className="h-10 w-full rounded-[8px] border border-input px-3 text-sm"
+              value={awardTz}
+              onChange={(e) => setAwardTz(e.target.value)}
+            >
+              {AWARD_TIMEZONES.map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
+              {!AWARD_TIMEZONES.includes(awardTz) ? (
+                <option value={awardTz}>{awardTz}</option>
+              ) : null}
+            </select>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="award-start">Window start</Label>
+              <Input
+                id="award-start"
+                type="time"
+                value={awardStart}
+                onChange={(e) => setAwardStart(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="award-end">Window end</Label>
+              <Input
+                id="award-end"
+                type="time"
+                value={awardEnd}
+                onChange={(e) => setAwardEnd(e.target.value)}
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={awardApprove}
+              onChange={(e) => setAwardApprove(e.target.checked)}
+            />
+            Ask me before opening booking (Approve &amp; book links)
+          </label>
+          <p className="text-xs text-muted">
+            Approve opens the airline site only after you confirm. Waypoint never
+            redeems miles for you.
+          </p>
+          <Button onClick={() => void savePrefs()}>Save award settings</Button>
         </div>
       </section>
 

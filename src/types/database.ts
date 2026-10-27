@@ -101,7 +101,7 @@ export type LoyaltyBalance = {
 export type LoyaltyConnection = {
   id: string;
   user_id: string;
-  provider: "awardwallet";
+  provider: "awardwallet" | "awardwallet_parse";
   external_user_id: string;
   access_level: string;
   status: "connected" | "disconnected" | "error";
@@ -166,6 +166,7 @@ export type AwardResult = {
   compromises: string[];
   raw: Record<string, unknown>;
   checked_at: string;
+  user_approved_at: string | null;
   created_at: string;
 };
 
@@ -259,6 +260,11 @@ export type UserPreferences = {
   distance_unit: "km" | "mi";
   timezone_display: "destination" | "home" | "utc";
   auto_confirm_imports: boolean;
+  award_check_enabled: boolean;
+  award_check_timezone: string;
+  award_check_start_minute: number;
+  award_check_end_minute: number;
+  award_approve_to_book: boolean;
   created_at: string;
   updated_at: string;
 };

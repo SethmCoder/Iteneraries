@@ -1,4 +1,8 @@
-import { isAwardSearchConfigured } from "@/lib/env";
+import { getAppUrl, isAwardSearchConfigured } from "@/lib/env";
+import {
+  buildApprovePath,
+  mintApproveToken,
+} from "@/lib/flights/approve-token";
 import {
   searchFromAwardRow,
   type AwardOption,
@@ -32,7 +36,11 @@ export async function executeAwardSearch(
   const result = await provider.search(searchFromAwardRow(search, programs));
   if (!result.ok) {
     return {
-      status: result.setupRequired ? "setup_required" : search.status === "paused" ? "paused" : "monitoring",
+      status: result.setupRequired
+        ? "setup_required"
+        : search.status === "paused"
+          ? "paused"
+          : "monitoring",
       options: [],
       error: result.error,
       setupRequired: result.setupRequired,
@@ -106,6 +114,40 @@ export async function notifyAwardMatches(
       : ""
   }.`;
 
+  const { data: prefs } = await supabase
+    .from("user_preferences")
+    .select("award_approve_to_book")
+    .eq("user_id", search.user_id)
+    .maybeSingle();
+
+  const approveRequired =
+    prefs?.award_approve_to_book !== false || search.require_booking_approval;
+
+  let ctaPath = "/flights";
+  let ctaLabel = "Open Flight Booker";
+  let emailExtra =
+    "<p>Review the itinerary in Flight Booker. Booking always happens on the airline site after you confirm.</p>";
+
+  if (approveRequired && top.bookingUrl) {
+    try {
+      const token = mintApproveToken({
+        userId: search.user_id,
+        searchId: search.id,
+        fingerprint: top.fingerprint,
+      });
+      ctaPath = buildApprovePath({
+        searchId: search.id,
+        fingerprint: top.fingerprint,
+        token,
+      });
+      ctaLabel = "Approve & book";
+      const absolute = `${getAppUrl().replace(/\/+$/, "")}${ctaPath}`;
+      emailExtra = `<p><a href="${absolute}">Approve &amp; book</a> opens the airline booking site. Waypoint does not spend your miles for you.</p><p><a href="${getAppUrl().replace(/\/+$/, "")}/flights">Review in Flight Booker</a> without booking.</p>`;
+    } catch {
+      // Missing secret — fall back to Flight Booker link
+    }
+  }
+
   const { notifyUser } = await import("@/lib/notifications/notify");
   await notifyUser(supabase, {
     userId: search.user_id,
@@ -113,9 +155,9 @@ export async function notifyAwardMatches(
     message,
     relatedTripId: search.trip_id,
     emailSubject: `Award seat match: ${search.origin} → ${search.destination}`,
-    emailHtmlBody: `<p>${message}</p><p>Review the itinerary in Flight Booker. Booking always happens on the airline site after you confirm.</p>`,
-    ctaPath: "/flights",
-    ctaLabel: "Open Flight Booker",
+    emailHtmlBody: `<p>${message}</p>${emailExtra}`,
+    ctaPath,
+    ctaLabel,
   });
 
   await supabase
