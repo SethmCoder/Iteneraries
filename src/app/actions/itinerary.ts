@@ -187,7 +187,7 @@ async function notifyCollaborators(
   tripId: string,
   actorId: string,
   message: string,
-  type: string,
+  type: "itinerary_item_added" | "itinerary_item_edited" | "trip_details_changed",
   itemId?: string,
 ) {
   const { data: members } = await supabase
@@ -199,14 +199,19 @@ async function notifyCollaborators(
 
   if (!members?.length) return;
 
-  await supabase.from("notifications").insert(
-    members.map((m: { user_id: string }) => ({
-      user_id: m.user_id,
-      actor_id: actorId,
+  const { notifyUser } = await import("@/lib/notifications/notify");
+  for (const m of members as { user_id: string }[]) {
+    await notifyUser(supabase, {
+      userId: m.user_id,
+      actorId,
       type,
       message,
-      related_trip_id: tripId,
-      related_item_id: itemId ?? null,
-    })),
-  );
+      relatedTripId: tripId,
+      relatedItemId: itemId ?? null,
+      emailSubject: "Trip update on Waypoint",
+      emailHtmlBody: `<p>${message}</p><p>A collaborator updated a shared trip.</p>`,
+      ctaPath: `/trips/${tripId}`,
+      ctaLabel: "Open trip",
+    });
+  }
 }

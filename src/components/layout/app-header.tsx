@@ -177,9 +177,14 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
                     className="flex flex-col items-start gap-0.5"
                     onClick={() => {
                       void markRead(n.id);
-                      if (n.related_trip_id) router.push(`/trips/${n.related_trip_id}`);
+                      if (n.type.startsWith("flight")) router.push("/flights");
+                      else if (n.type.startsWith("account_"))
+                        router.push("/settings?tab=account");
+                      else if (n.related_trip_id)
+                        router.push(`/trips/${n.related_trip_id}`);
                       else if (n.type.startsWith("friend")) router.push("/social");
-                      else if (n.type.startsWith("import")) router.push("/settings?tab=imports");
+                      else if (n.type.startsWith("import"))
+                        router.push("/settings?tab=imports");
                     }}
                   >
                     <span className={cn("text-sm", !n.read_at && "font-semibold")}>
@@ -214,6 +219,10 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => router.push("/trips")}>
                 Main Page
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/flights")}>
+                <Plane className="mr-2 h-4 w-4" />
+                Flight Booker
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/settings")}>
                 Settings
@@ -258,6 +267,13 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
               onClick={() => setMobileOpen(false)}
             >
               Social
+            </Link>
+            <Link
+              href="/flights"
+              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => setMobileOpen(false)}
+            >
+              Flight Booker
             </Link>
             <Link
               href="/settings"

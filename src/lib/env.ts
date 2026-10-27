@@ -22,8 +22,28 @@ export function getOverpassUrl(): string {
   );
 }
 
+/** Car / default OSRM host. Public project-osrm demo is driving-only. */
 export function getOsrmBaseUrl(): string {
   return process.env.OSRM_BASE_URL ?? "https://router.project-osrm.org";
+}
+
+/**
+ * FOSSGIS multi-profile OSRM (Germany-hosted, public). Path prefixes select the
+ * profile; the `/route/v1/{profile}/` segment still works with any name.
+ * @see https://routing.openstreetmap.de/
+ */
+export function getOsrmWalkingBaseUrl(): string {
+  return (
+    process.env.OSRM_WALKING_BASE_URL ??
+    "https://routing.openstreetmap.de/routed-foot"
+  );
+}
+
+export function getOsrmBicycleBaseUrl(): string {
+  return (
+    process.env.OSRM_BICYCLE_BASE_URL ??
+    "https://routing.openstreetmap.de/routed-bike"
+  );
 }
 
 export function getTransitRouterUrl(): string | null {
@@ -65,4 +85,29 @@ export function getOpenAiConfig(): OpenAiConfig | null {
 
 export function getResendWebhookSecret(): string | null {
   return process.env.RESEND_WEBHOOK_SECRET ?? null;
+}
+
+export function isAwardSearchConfigured(): boolean {
+  return Boolean(process.env.SEATS_AERO_API_KEY?.trim());
+}
+
+export function getSeatsAeroApiKey(): string | null {
+  return process.env.SEATS_AERO_API_KEY?.trim() || null;
+}
+
+export function getCronSecret(): string | null {
+  return process.env.CRON_SECRET?.trim() || null;
+}
+
+export function getResendApiKey(): string | null {
+  return process.env.RESEND_API_KEY?.trim() || null;
+}
+
+/** From-address for transactional mail (must be a verified Resend domain). */
+export function getResendFromEmail(): string | null {
+  return process.env.RESEND_FROM_EMAIL?.trim() || null;
+}
+
+export function isOutboundEmailConfigured(): boolean {
+  return Boolean(getResendApiKey() && getResendFromEmail());
 }

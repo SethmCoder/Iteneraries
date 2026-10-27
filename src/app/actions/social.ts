@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { notifyUser } from "@/lib/notifications/notify";
 import { createClient } from "@/lib/supabase/server";
 
 export async function searchUsersAction(query: string) {
@@ -48,11 +49,16 @@ export async function sendFriendRequestAction(username: string) {
     throw new Error(error.message);
   }
 
-  await supabase.from("notifications").insert({
-    user_id: recipient.id,
-    actor_id: user.id,
+  await notifyUser(supabase, {
+    userId: recipient.id,
+    actorId: user.id,
     type: "friend_request",
     message: "You received a friend request",
+    emailSubject: "New friend request on Waypoint",
+    emailHtmlBody:
+      "<p>Someone sent you a friend request on Waypoint.</p><p>Open Social to accept or decline.</p>",
+    ctaPath: "/social",
+    ctaLabel: "Open Social",
   });
 
   revalidatePath("/social");
@@ -82,11 +88,15 @@ export async function respondFriendRequestAction(
   if (error) throw new Error(error.message);
 
   if (status === "accepted") {
-    await supabase.from("notifications").insert({
-      user_id: row.requester_id,
-      actor_id: user.id,
+    await notifyUser(supabase, {
+      userId: row.requester_id,
+      actorId: user.id,
       type: "friend_accepted",
       message: "Your friend request was accepted",
+      emailSubject: "Friend request accepted",
+      emailHtmlBody: "<p>Your Waypoint friend request was accepted.</p>",
+      ctaPath: "/social",
+      ctaLabel: "Open Social",
     });
   }
 
@@ -154,12 +164,17 @@ export async function inviteCollaboratorAction(
     throw new Error(error.message);
   }
 
-  await supabase.from("notifications").insert({
-    user_id: profile.id,
-    actor_id: user.id,
+  await notifyUser(supabase, {
+    userId: profile.id,
+    actorId: user.id,
     type: "trip_invitation",
     message: "You were invited to collaborate on a trip",
-    related_trip_id: parsed.tripId,
+    relatedTripId: parsed.tripId,
+    emailSubject: "Trip collaboration invite",
+    emailHtmlBody:
+      "<p>You were invited to collaborate on a trip in Waypoint.</p>",
+    ctaPath: `/trips/${parsed.tripId}`,
+    ctaLabel: "Open trip",
   });
 
   revalidatePath(`/trips/${parsed.tripId}`);
@@ -190,12 +205,16 @@ export async function respondInvitationAction(
   if (error) throw new Error(error.message);
 
   if (status === "accepted" && row.invited_by) {
-    await supabase.from("notifications").insert({
-      user_id: row.invited_by,
-      actor_id: user.id,
+    await notifyUser(supabase, {
+      userId: row.invited_by,
+      actorId: user.id,
       type: "trip_invitation_accepted",
       message: "Your trip invitation was accepted",
-      related_trip_id: row.trip_id,
+      relatedTripId: row.trip_id,
+      emailSubject: "Trip invitation accepted",
+      emailHtmlBody: "<p>Your trip collaboration invite was accepted.</p>",
+      ctaPath: `/trips/${row.trip_id}`,
+      ctaLabel: "Open trip",
     });
   }
 

@@ -84,7 +84,7 @@ export function TransportSegmentList({
 
   if (!canRoute) {
     return (
-      <div className="my-2 ml-1 rounded-[8px] border border-dashed border-border bg-[var(--page-bg)] px-3 py-2 text-xs text-muted">
+      <div className="mt-2 rounded-[8px] border border-dashed border-border bg-white/70 px-3 py-2 text-xs text-muted">
         Not enough location data to calculate a route between {from.title} and{" "}
         {to.title}.
       </div>
@@ -92,7 +92,7 @@ export function TransportSegmentList({
   }
 
   return (
-    <div className="my-2 ml-1 rounded-[8px] border border-dashed border-border bg-[var(--page-bg)] px-3 py-2 text-xs text-muted">
+    <div className="mt-2 rounded-[8px] border border-dashed border-border bg-white/70 px-3 py-2 text-xs text-muted">
       <div className="flex flex-wrap items-center gap-2">
         <span>
           {from.title} → {to.title}

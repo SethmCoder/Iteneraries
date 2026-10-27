@@ -10,12 +10,21 @@ import {
   getInboundEmailAddress,
   isAiConfigured,
   isEmailImportConfigured,
+  isOutboundEmailConfigured,
 } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
+import type { AccountBilling } from "@/types/database";
 
 export const metadata = { title: "Settings" };
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const params = await searchParams;
+  const initialTab = params.tab ?? null;
+
   if (isDemoModeEnabled() && (await hasDemoSession())) {
     const trips = demoTrips().map((t) => ({
       id: t.id,
@@ -34,6 +43,9 @@ export default async function SettingsPage() {
           address: null,
           aiConfigured: false,
         }}
+        billing={null}
+        outboundEmailConfigured={false}
+        initialTab={initialTab}
       />
     );
   }
@@ -74,6 +86,12 @@ export default async function SettingsPage() {
     .eq("user_id", user!.id)
     .eq("invitation_status", "accepted");
 
+  const { data: billing } = await supabase
+    .from("account_billing")
+    .select("*")
+    .eq("user_id", user!.id)
+    .maybeSingle();
+
   const inbound = getInboundEmailAddress();
   const personalAddress =
     inbound && alias?.alias_token
@@ -103,6 +121,9 @@ export default async function SettingsPage() {
         address: personalAddress,
         aiConfigured: isAiConfigured(),
       }}
+      billing={(billing as AccountBilling | null) ?? null}
+      outboundEmailConfigured={isOutboundEmailConfigured()}
+      initialTab={initialTab}
     />
   );
 }

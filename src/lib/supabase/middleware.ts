@@ -26,6 +26,8 @@ export async function updateSession(request: NextRequest) {
   const isAuthPage = PUBLIC_PATHS.some((p) => path.startsWith(p));
   const isWebhook = path.startsWith("/api/webhooks");
   const isDemoApi = path.startsWith("/api/demo/");
+  const isCron = path.startsWith("/api/cron/");
+  const isAuthApi = path.startsWith("/api/auth/");
   const isStatic =
     path.startsWith("/_next") ||
     path.startsWith("/favicon") ||
@@ -38,6 +40,8 @@ export async function updateSession(request: NextRequest) {
       PUBLIC_PATHS.some((p) => path.startsWith(p)) ||
       isWebhook ||
       isDemoApi ||
+      isCron ||
+      isAuthApi ||
       path === "/";
 
     if (demoSession && (isAuthPage || path === "/")) {
@@ -86,6 +90,8 @@ export async function updateSession(request: NextRequest) {
     !isAuthPage &&
     !isWebhook &&
     !isDemoApi &&
+    !isCron &&
+    !isAuthApi &&
     !isStatic &&
     path !== "/"
   ) {

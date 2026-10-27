@@ -8,7 +8,7 @@ import { AuthCard } from "@/components/auth/auth-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { forgotPasswordSchema } from "@/lib/validations/auth";
 import { z } from "zod";
 
@@ -30,12 +30,12 @@ export default function ForgotPasswordPage() {
       return;
     }
     try {
-      const supabase = createClient();
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-        values.email,
-        { redirectTo: `${window.location.origin}/auth/reset-password` },
-      );
-      if (resetError) {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: values.email }),
+      });
+      if (!res.ok) {
         setError("Unable to send reset email. Please try again.");
         return;
       }

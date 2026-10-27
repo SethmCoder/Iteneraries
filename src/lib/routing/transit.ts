@@ -73,7 +73,7 @@ export async function getTransitRoute(request: RouteRequest): Promise<RouteResul
 
   if (!base) {
     return unavailable(
-      "Public transit routing is not configured (TRANSIT_ROUTER_URL is unset). Enter the duration manually.",
+      "Train/bus routing needs an OpenTripPlanner server with local GTFS (set TRANSIT_ROUTER_URL). There is no free worldwide transit demo — enter the duration manually for now.",
     );
   }
 

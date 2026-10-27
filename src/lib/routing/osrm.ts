@@ -1,4 +1,8 @@
-import { getOsrmBaseUrl } from "@/lib/env";
+import {
+  getOsrmBaseUrl,
+  getOsrmBicycleBaseUrl,
+  getOsrmWalkingBaseUrl,
+} from "@/lib/env";
 import type { RouteRequest, RouteResult, TransportMode } from "@/lib/routing/types";
 
 type OsrmMode = Exclude<TransportMode, "transit">;
@@ -10,22 +14,15 @@ const PROFILES: Record<OsrmMode, string> = {
 };
 
 /**
- * The public OSRM demo server only runs the car profile and ignores the
- * profile in the URL, so walking/cycling results from it would be wrong.
+ * Car-only public demo. Walking/cycling must not use this host — profile in the
+ * path is ignored and results would be driving times.
  */
-const DEMO_HOSTS = new Set(["router.project-osrm.org"]);
-
-/** Optional per-mode overrides for self-hosted profile servers. */
-const MODE_ENV: Record<OsrmMode, string | undefined> = {
-  car: undefined,
-  walking: "OSRM_WALKING_BASE_URL",
-  bicycle: "OSRM_BICYCLE_BASE_URL",
-};
+const CAR_ONLY_HOSTS = new Set(["router.project-osrm.org"]);
 
 function baseUrlForMode(mode: OsrmMode): string {
-  const envName = MODE_ENV[mode];
-  const override = envName ? process.env[envName] : undefined;
-  return (override || getOsrmBaseUrl()).replace(/\/+$/, "");
+  if (mode === "walking") return getOsrmWalkingBaseUrl().replace(/\/+$/, "");
+  if (mode === "bicycle") return getOsrmBicycleBaseUrl().replace(/\/+$/, "");
+  return getOsrmBaseUrl().replace(/\/+$/, "");
 }
 
 function isAbort(error: unknown, signal?: AbortSignal): boolean {
@@ -67,10 +64,10 @@ export async function getOsrmRoute(request: RouteRequest): Promise<RouteResult> 
   } catch {
     return unavailable(mode, "OSRM_BASE_URL is not a valid URL.");
   }
-  if (mode !== "car" && DEMO_HOSTS.has(host)) {
+  if (mode !== "car" && CAR_ONLY_HOSTS.has(host)) {
     return unavailable(
       mode,
-      `The public OSRM demo server only supports driving. Configure a ${mode} OSRM server to enable this mode.`,
+      `The public OSRM demo server only supports driving. Set OSRM_${mode === "walking" ? "WALKING" : "BICYCLE"}_BASE_URL to a multi-profile host such as routing.openstreetmap.de.`,
     );
   }
 

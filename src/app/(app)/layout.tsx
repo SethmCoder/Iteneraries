@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/app-header";
+import { AccountAccessGate } from "@/components/billing/account-access-gate";
 import {
   demoProfile,
   demoTrips,
@@ -7,7 +8,7 @@ import {
   isDemoModeEnabled,
 } from "@/lib/demo";
 import { createClient } from "@/lib/supabase/server";
-import type { Profile, Trip } from "@/types/database";
+import type { AccountBilling, Profile, Trip } from "@/types/database";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export default async function AppLayout({
 
   let profile: Profile | null = null;
   let nextTrip: Trip | null = null;
+  let billing: AccountBilling | null = null;
 
   try {
     const supabase = await createClient();
@@ -55,6 +57,13 @@ export default async function AppLayout({
       updated_at: new Date().toISOString(),
     };
 
+    const { data: billingRow } = await supabase
+      .from("account_billing")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    billing = (billingRow as AccountBilling | null) ?? null;
+
     const today = new Date().toISOString().slice(0, 10);
     const { data: trips } = await supabase
       .from("trips")
@@ -72,6 +81,7 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--page-bg)]">
+      <AccountAccessGate billing={billing} />
       <AppHeader profile={profile} nextTrip={nextTrip} />
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 md:px-6">
         {children}

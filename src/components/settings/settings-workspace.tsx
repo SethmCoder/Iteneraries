@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { renewAccountAction } from "@/app/actions/billing";
 import {
   confirmReservationImportAction,
   rejectReservationImportAction,
@@ -13,9 +14,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { daysUntil } from "@/lib/billing/period";
 import { PASSWORD_POLICY } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/client";
-import type { Profile, UserPreferences } from "@/types/database";
+import type { AccountBilling, Profile, UserPreferences } from "@/types/database";
 
 export function SettingsWorkspace({
   email,
@@ -24,6 +26,9 @@ export function SettingsWorkspace({
   pendingReviews,
   trips,
   emailImport,
+  billing,
+  outboundEmailConfigured,
+  initialTab,
 }: {
   email: string;
   profile: Profile;
@@ -39,8 +44,14 @@ export function SettingsWorkspace({
     address: string | null;
     aiConfigured: boolean;
   };
+  billing: AccountBilling | null;
+  outboundEmailConfigured: boolean;
+  initialTab?: string | null;
 }) {
   const router = useRouter();
+  const importsRef = useRef<HTMLElement | null>(null);
+  const accountRef = useRef<HTMLElement | null>(null);
+  const [renewing, setRenewing] = useState(false);
   const [username, setUsername] = useState(profile.username);
   const [displayName, setDisplayName] = useState(profile.display_name ?? "");
   const [message, setMessage] = useState<string | null>(null);
@@ -90,11 +101,16 @@ export function SettingsWorkspace({
   }
 
   async function resetPassword() {
-    const supabase = createClient();
-    await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+    const res = await fetch("/api/auth/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
     });
-    setMessage("Password reset email sent");
+    if (!res.ok) {
+      setError("Unable to send password reset email");
+      return;
+    }
+    setMessage("Password reset email sent (if outbound email is configured)");
   }
 
   async function logout() {
@@ -102,6 +118,34 @@ export function SettingsWorkspace({
     await supabase.auth.signOut();
     router.push("/login");
   }
+
+  useEffect(() => {
+    if (initialTab === "imports" && importsRef.current) {
+      importsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (initialTab === "account" && accountRef.current) {
+      accountRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [initialTab]);
+
+  async function renewAccess() {
+    setError(null);
+    setRenewing(true);
+    try {
+      const result = await renewAccountAction();
+      setMessage(
+        `Access renewed through ${new Date(result.periodEnd).toLocaleDateString()}.`,
+      );
+      router.refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setRenewing(false);
+    }
+  }
+
+  const daysLeft = billing ? daysUntil(billing.current_period_end) : null;
+  const expired = billing?.status === "expired";
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -161,10 +205,74 @@ export function SettingsWorkspace({
         </Button>
       </section>
 
-      <section className="rounded-[12px] border border-border bg-card p-5 shadow-sm">
-        <h2 className="font-semibold">Account</h2>
-        <p className="mt-2 text-sm text-muted">Email: {email}</p>
+      <section
+        ref={accountRef}
+        id="account"
+        className="rounded-[12px] border border-border bg-card p-5 shadow-sm"
+      >
+        <h2 className="font-semibold">Account & access</h2>
+        <p className="mt-2 text-sm text-muted">Signed in as {email}</p>
         <p className="mt-1 text-xs text-muted">{PASSWORD_POLICY.description}</p>
+
+        <div className="mt-4 rounded-[10px] border border-border bg-[var(--page-bg)] p-3">
+          <p className="text-sm font-semibold">Access period</p>
+          {billing ? (
+            <>
+              <p className="mt-1 text-sm text-muted">
+                Plan: <span className="text-foreground">{billing.plan}</span>
+                {" · "}
+                Status:{" "}
+                <span className="text-foreground">{billing.status}</span>
+              </p>
+              <p className="mt-1 text-sm text-muted">
+                Period ends{" "}
+                <span className="font-medium text-foreground">
+                  {new Date(billing.current_period_end).toLocaleString()}
+                </span>
+                {daysLeft != null && !expired
+                  ? ` (${daysLeft} day${daysLeft === 1 ? "" : "s"} left)`
+                  : null}
+              </p>
+              {expired ? (
+                <p className="mt-2 text-sm text-warning">
+                  Access expired
+                  {billing.delete_after
+                    ? ` — account scheduled for deletion after ${new Date(billing.delete_after).toLocaleDateString()}`
+                    : ""}
+                  . Renew now to keep your data.
+                </p>
+              ) : null}
+              <p className="mt-2 text-xs text-muted">
+                Free renew extends access 30 days. This uses the same billing period
+                model that will support paid plans later — no throwaway free-only
+                path.
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-muted">
+              No billing row yet. Press Renew to start a 30-day period.
+            </p>
+          )}
+          <Button
+            className="mt-3"
+            disabled={renewing}
+            onClick={() => void renewAccess()}
+          >
+            {renewing ? "Renewing…" : "Renew for 30 days"}
+          </Button>
+        </div>
+
+        <div className="mt-4 rounded-[10px] border border-border p-3">
+          <p className="text-sm font-semibold">Email notifications</p>
+          <p className="mt-1 text-xs text-muted">
+            Alerts (friends, trip edits, award matches, renewal) go to{" "}
+            <strong>{email}</strong>
+            {outboundEmailConfigured
+              ? " via Resend."
+              : ". Set RESEND_API_KEY and RESEND_FROM_EMAIL to enable outbound mail."}
+          </p>
+        </div>
+
         <div className="mt-4 flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => void resetPassword()}>
             Send password reset email
@@ -262,7 +370,11 @@ export function SettingsWorkspace({
         </div>
       </section>
 
-      <section className="rounded-[12px] border border-border bg-card p-5 shadow-sm">
+      <section
+        ref={importsRef}
+        id="imports"
+        className="rounded-[12px] border border-border bg-card p-5 shadow-sm"
+      >
         <h2 className="font-semibold">Email import</h2>
         {!emailImport.configured ? (
           <p className="mt-2 text-sm text-warning">

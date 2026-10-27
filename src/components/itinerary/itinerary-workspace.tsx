@@ -1,13 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import {
   ArrowDown,
   ArrowUp,
   CalendarDays,
-  Clock3,
   List,
   Loader2,
+  Plane,
   Route,
   Sparkles,
   Trash2,
@@ -550,6 +551,12 @@ export function ItineraryWorkspace({
             role={role}
             currentUserId={currentUserId}
           />
+          <Button variant="secondary" asChild>
+            <Link href={`/flights?tripId=${trip.id}`}>
+              <Plane className="h-4 w-4" />
+              Flight Booker
+            </Link>
+          </Button>
           <Button
             variant="secondary"
             onClick={() => void makeRoute()}
@@ -794,11 +801,11 @@ export function ItineraryWorkspace({
               </p>
             </div>
           ) : viewMode === "days" && selectedDay === "all" ? (
-            <div className="space-y-5">
+            <div className="space-y-6">
               {dayKeys.map((dayKey) => {
                 const dayItems = dayGroups.get(dayKey) ?? [];
                 return (
-                  <div key={dayKey} className="space-y-2">
+                  <div key={dayKey} className="space-y-3">
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="text-sm font-bold text-foreground">
                         {formatDayHeading(dayKey)}
@@ -811,60 +818,39 @@ export function ItineraryWorkspace({
                         Focus day
                       </button>
                     </div>
-                    <ol className="space-y-2">
-                      {dayItems.map((item, index) => (
-                        <ItineraryCard
-                          key={item.id}
-                          item={item}
-                          selected={selectedId === item.id}
-                          canEdit={canEdit}
-                          pending={pending}
-                          isFirst={index === 0}
-                          isLast={index === dayItems.length - 1}
-                          onSelect={() => setSelectedId(item.id)}
-                          onMoveUp={() => void moveItem(item.id, -1)}
-                          onMoveDown={() => void moveItem(item.id, 1)}
-                          onDelete={() => setDeleteId(item.id)}
-                          onSaveTimes={(patch) =>
-                            startTransition(() => saveItemTimes(item.id, patch))
-                          }
-                        />
-                      ))}
-                    </ol>
+                    <TimelineList
+                      items={dayItems}
+                      selectedId={selectedId}
+                      canEdit={canEdit}
+                      pending={pending}
+                      tripId={trip.id}
+                      onSelect={setSelectedId}
+                      onMoveUp={(id) => void moveItem(id, -1)}
+                      onMoveDown={(id) => void moveItem(id, 1)}
+                      onDelete={setDeleteId}
+                      onSaveTimes={(id, patch) =>
+                        startTransition(() => saveItemTimes(id, patch))
+                      }
+                    />
                   </div>
                 );
               })}
             </div>
           ) : (
-            <ol className="space-y-2">
-              {visibleItems.map((item, index) => (
-                <li key={item.id}>
-                  <ItineraryCard
-                    item={item}
-                    selected={selectedId === item.id}
-                    canEdit={canEdit}
-                    pending={pending}
-                    isFirst={index === 0}
-                    isLast={index === visibleItems.length - 1}
-                    onSelect={() => setSelectedId(item.id)}
-                    onMoveUp={() => void moveItem(item.id, -1)}
-                    onMoveDown={() => void moveItem(item.id, 1)}
-                    onDelete={() => setDeleteId(item.id)}
-                    onSaveTimes={(patch) =>
-                      startTransition(() => saveItemTimes(item.id, patch))
-                    }
-                  />
-                  {index < visibleItems.length - 1 ? (
-                    <TransportSegmentList
-                      from={visibleItems[index]}
-                      to={visibleItems[index + 1]}
-                      tripId={trip.id}
-                      canEdit={canEdit}
-                    />
-                  ) : null}
-                </li>
-              ))}
-            </ol>
+            <TimelineList
+              items={visibleItems}
+              selectedId={selectedId}
+              canEdit={canEdit}
+              pending={pending}
+              tripId={trip.id}
+              onSelect={setSelectedId}
+              onMoveUp={(id) => void moveItem(id, -1)}
+              onMoveDown={(id) => void moveItem(id, 1)}
+              onDelete={setDeleteId}
+              onSaveTimes={(id, patch) =>
+                startTransition(() => saveItemTimes(id, patch))
+              }
+            />
           )}
         </section>
 
@@ -910,6 +896,95 @@ export function ItineraryWorkspace({
   );
 }
 
+function formatStopWhen(item: ItineraryItem): string {
+  if (!item.start_at) return "Time not set";
+  const start = formatCardTime(item.start_at);
+  const date = formatCardDate(item.start_at);
+  const end = item.end_at ? formatCardTime(item.end_at) : null;
+  if (end) return `${start} – ${end}${date ? ` · ${date}` : ""}`;
+  return `${start}${date ? ` · ${date}` : ""}`;
+}
+
+function TimelineList({
+  items,
+  selectedId,
+  canEdit,
+  pending,
+  tripId,
+  onSelect,
+  onMoveUp,
+  onMoveDown,
+  onDelete,
+  onSaveTimes,
+}: {
+  items: ItineraryItem[];
+  selectedId: string | null;
+  canEdit: boolean;
+  pending: boolean;
+  tripId: string;
+  onSelect: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
+  onDelete: (id: string) => void;
+  onSaveTimes: (
+    id: string,
+    patch: { start_at?: string | null; end_at?: string | null },
+  ) => void;
+}) {
+  return (
+    <ol className="relative">
+      {items.map((item, index) => {
+        const isFirst = index === 0;
+        const isLast = index === items.length - 1;
+        const selected = selectedId === item.id;
+        return (
+          <li key={item.id} className="relative flex gap-3">
+            <div
+              className="relative flex w-4 shrink-0 justify-center"
+              aria-hidden
+            >
+              {!isFirst ? (
+                <span className="absolute inset-x-1/2 top-0 h-3.5 w-0.5 -translate-x-1/2 bg-brand/30" />
+              ) : null}
+              <span
+                className={`relative z-10 mt-3.5 h-2.5 w-2.5 rounded-full border-2 border-brand ${
+                  selected ? "bg-brand" : "bg-white"
+                }`}
+              />
+              {!isLast ? (
+                <span className="absolute inset-x-1/2 top-6 bottom-0 w-0.5 -translate-x-1/2 bg-brand/30" />
+              ) : null}
+            </div>
+            <div className="min-w-0 flex-1 pb-4">
+              <ItineraryCard
+                item={item}
+                selected={selected}
+                canEdit={canEdit}
+                pending={pending}
+                isFirst={isFirst}
+                isLast={isLast}
+                onSelect={() => onSelect(item.id)}
+                onMoveUp={() => onMoveUp(item.id)}
+                onMoveDown={() => onMoveDown(item.id)}
+                onDelete={() => onDelete(item.id)}
+                onSaveTimes={(patch) => onSaveTimes(item.id, patch)}
+              />
+              {!isLast ? (
+                <TransportSegmentList
+                  from={item}
+                  to={items[index + 1]}
+                  tripId={tripId}
+                  canEdit={canEdit}
+                />
+              ) : null}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function ItineraryCard({
   item,
   selected,
@@ -947,79 +1022,67 @@ function ItineraryCard({
       <button
         type="button"
         onClick={onSelect}
-        className="flex w-full items-stretch gap-0 text-left"
+        className="flex w-full gap-3 p-3 text-left"
       >
-        <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center border-r border-border bg-[var(--page-bg)] px-2 py-3">
-          <Clock3 className="mb-1 h-3.5 w-3.5 text-brand" />
-          <span className="text-sm font-bold leading-tight text-foreground">
-            {formatCardTime(item.start_at)}
-          </span>
-          {item.start_at ? (
-            <span className="mt-0.5 text-[10px] font-medium text-muted">
-              {formatCardDate(item.start_at)}
-            </span>
-          ) : (
-            <span className="mt-0.5 text-[10px] text-muted">Set time</span>
-          )}
-          {item.end_at ? (
-            <span className="mt-1 text-[10px] text-muted">
-              → {formatCardTime(item.end_at)}
-            </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-semibold text-foreground">
+              {item.title}
+            </p>
+            <Badge className="capitalize">
+              {item.item_type.replace("_", " ")}
+            </Badge>
+          </div>
+          {item.address ? (
+            <p className="mt-0.5 truncate text-sm text-muted">{item.address}</p>
+          ) : item.location_name && item.location_name !== item.title ? (
+            <p className="mt-0.5 truncate text-sm text-muted">
+              {item.location_name}
+            </p>
+          ) : null}
+          <p className="mt-1 text-xs text-muted">{formatStopWhen(item)}</p>
+          {item.booking_reference ? (
+            <p className="mt-1 text-xs text-muted">
+              Ref: {item.booking_reference}
+            </p>
           ) : null}
         </div>
-        <div className="min-w-0 flex-1 p-3">
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-semibold">{item.title}</p>
-                <Badge className="capitalize">
-                  {item.item_type.replace("_", " ")}
-                </Badge>
-              </div>
-              {item.address ? (
-                <p className="mt-0.5 text-xs text-muted">{item.address}</p>
-              ) : null}
-              {item.booking_reference ? (
-                <p className="mt-1 text-xs text-muted">
-                  Ref: {item.booking_reference}
-                </p>
-              ) : null}
-            </div>
-            {canEdit ? (
-              <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7"
-                  onClick={onMoveUp}
-                  disabled={isFirst || pending}
-                >
-                  <ArrowUp className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7"
-                  onClick={onMoveDown}
-                  disabled={isLast || pending}
-                >
-                  <ArrowDown className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-7 w-7 text-destructive"
-                  onClick={onDelete}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ) : null}
+        {canEdit ? (
+          <div
+            className="flex shrink-0 flex-col gap-0.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={onMoveUp}
+              disabled={isFirst || pending}
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={onMoveDown}
+              disabled={isLast || pending}
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 text-destructive"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
           </div>
-        </div>
+        ) : null}
       </button>
-      {canEdit ? (
-        <div className="grid gap-2 border-t border-border p-3 sm:grid-cols-2">
+      {canEdit && selected ? (
+        <div className="grid gap-2 border-t border-border px-3 py-2.5 sm:grid-cols-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted">Starts</Label>
             <Input

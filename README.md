@@ -35,10 +35,12 @@ Then open `/login` and click **Enter preview**. You’ll get sample Paris trip d
 | Dynamic POIs (Overpass) | Works when network allows (shared public API; rate-limited) |
 | Place name search (Nominatim) | Works when network allows (usage policy applies) |
 | Driving routes (OSRM public demo) | Works when network allows |
-| Walking/cycling routes | Need `OSRM_WALKING_BASE_URL` / `OSRM_BICYCLE_BASE_URL` (public demo is driving-only) |
-| Public transit routing | Requires `TRANSIT_ROUTER_URL` |
+| Walking/cycling routes | Defaults to FOSSGIS OSRM (`routing.openstreetmap.de`); override with `OSRM_WALKING_BASE_URL` / `OSRM_BICYCLE_BASE_URL` |
+| Public transit routing | Requires `TRANSIT_ROUTER_URL` (OpenTripPlanner + regional GTFS; no free global demo) |
 | AI Suggest Itinerary | Requires `OPENAI_API_KEY` |
 | Email import | Requires Resend inbound + webhook secret + AI key |
+| Flight Booker (award search UI) | Works; live inventory needs `SEATS_AERO_API_KEY` |
+| Award monitoring cron | Needs `SEATS_AERO_API_KEY` + `CRON_SECRET` on Vercel |
 
 ## Local setup
 
@@ -55,12 +57,13 @@ Open [http://localhost:3000](http://localhost:3000).
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. Copy **Project URL**, **anon key**, and **service role key** into `.env.local`.
-3. In the SQL editor, run the migration file:
+3. In the SQL editor, run the migration files in order:
 
-   [`supabase/migrations/20241027000000_initial_schema.sql`](supabase/migrations/20241027000000_initial_schema.sql)
+   - [`supabase/migrations/20241027000000_initial_schema.sql`](supabase/migrations/20241027000000_initial_schema.sql)
+   - [`supabase/migrations/20261027150000_flight_booker.sql`](supabase/migrations/20261027150000_flight_booker.sql)
 
 4. Confirm Auth email settings (enable/disable email confirmation as desired).
-5. Storage bucket `avatars` and RLS policies are created by the migration.
+5. Storage bucket `avatars` and RLS policies are created by the initial migration.
 
 Optional CLI:
 
@@ -85,6 +88,25 @@ Optional integrations:
 - `OVERPASS_API_URL`, `OSRM_BASE_URL`, `OSRM_WALKING_BASE_URL`, `OSRM_BICYCLE_BASE_URL`, `TRANSIT_ROUTER_URL`
 - `NOMINATIM_BASE_URL`, `GEOCODER_USER_AGENT`
 - `NEXT_PUBLIC_APP_URL`
+- `SEATS_AERO_API_KEY` (award inventory via Seats.aero Partner API)
+- `CRON_SECRET` (authorizes `/api/cron/*`)
+- `RESEND_FROM_EMAIL` (verified sender for password reset, social, flight, and renewal emails)
+
+## Account access periods
+
+New accounts get a **30-day** access period (`account_billing`). Users renew for free in **Settings → Account & access**. Reminder emails go out at 7 days and 1 day remaining; after expiry the account is locked, then deleted after a 7-day grace period (`/api/cron/account-lifecycle`).
+
+The billing row is structured for a later paid plan (`plan`, `billing_provider`, Stripe id columns) without rewriting free renew.
+
+## Flight Booker (award seats)
+
+Open **Flight Booker** from the avatar menu or the trip toolbar. Create award searches, record manual loyalty balances, and review matches when a provider key is present.
+
+1. Obtain a Seats.aero Partner API key (Pro non-commercial or commercial agreement). Set `SEATS_AERO_API_KEY`.
+2. Set `CRON_SECRET` and deploy on Vercel so the 6-hour cron in `vercel.json` can call `/api/cron/award-monitor` with `Authorization: Bearer $CRON_SECRET`.
+3. Without the API key, searches save as **Setup Required** — Waypoint never invents award availability or presents cash fares as awards.
+4. Booking is a confirmed handoff to the airline / program site. Points are never redeemed by Waypoint.
+5. Forwarding address for reservation emails is shown on Flight Booker and in Settings when Resend inbound is configured.
 
 ## Email import (Resend)
 
@@ -125,7 +147,7 @@ npm test             # Vitest unit tests
 
 ## Testing
 
-Unit tests cover auth validation, POI zoom/cache/dedupe, AI schema validation, email booking-key dedupe, routing unavailable states, and rate limiting.
+Unit tests cover auth validation, POI zoom/cache/dedupe, AI schema validation, email booking-key dedupe, routing unavailable states, rate limiting, and Flight Booker schema/provider helpers.
 
 ```bash
 npm test
