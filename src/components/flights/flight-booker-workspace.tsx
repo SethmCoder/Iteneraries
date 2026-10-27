@@ -19,7 +19,15 @@ import {
   saveLoyaltyBalanceAction,
   setAwardSearchPausedAction,
 } from "@/app/actions/flights";
+import {
+  disconnectAwardWalletAction,
+  syncAwardWalletBalancesAction,
+} from "@/app/actions/loyalty";
 import { AirportInput } from "@/components/flights/airport-input";
+import {
+  AirlinePreferenceSelect,
+  AlliancePreferenceSelect,
+} from "@/components/flights/preference-selects";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,13 +39,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { LOYALTY_PROGRAMS } from "@/lib/flights/airports";
+import { LOYALTY_PROGRAMS } from "@/lib/flights/loyalty-programs";
 import { awardSearchFormSchema } from "@/lib/flights/schema";
 import type {
   AwardResult,
   AwardSearch,
   AwardSearchStatus,
   LoyaltyBalance,
+  LoyaltyConnection,
 } from "@/types/database";
 
 type FormState = {
@@ -64,8 +73,8 @@ type FormState = {
   arriveTimeStart: string;
   arriveTimeEnd: string;
   maxConnections: string;
-  preferredAirlines: string;
-  preferredAlliances: string;
+  preferredAirlines: string[];
+  preferredAlliances: string[];
   maxLayoverMinutes: string;
   nearbyAirportsOk: boolean;
   mixedCabinOk: boolean;
@@ -95,8 +104,8 @@ const emptyForm = (tripId: string | null): FormState => ({
   arriveTimeStart: "",
   arriveTimeEnd: "",
   maxConnections: "1",
-  preferredAirlines: "",
-  preferredAlliances: "",
+  preferredAirlines: [],
+  preferredAlliances: [],
   maxLayoverMinutes: "",
   nearbyAirportsOk: true,
   mixedCabinOk: false,
@@ -156,8 +165,8 @@ function searchToForm(search: AwardSearch, programs: string[]): FormState {
     arriveTimeStart: p.arriveTimeStart ?? "",
     arriveTimeEnd: p.arriveTimeEnd ?? "",
     maxConnections: p.maxConnections?.toString() ?? "",
-    preferredAirlines: (p.preferredAirlines ?? []).join(", "),
-    preferredAlliances: (p.preferredAlliances ?? []).join(", "),
+    preferredAirlines: p.preferredAirlines ?? [],
+    preferredAlliances: p.preferredAlliances ?? [],
     maxLayoverMinutes: p.maxLayoverMinutes?.toString() ?? "",
     nearbyAirportsOk: p.nearbyAirportsOk ?? true,
     mixedCabinOk: p.mixedCabinOk ?? false,
@@ -194,14 +203,8 @@ function formToPayload(form: FormState, tripId: string | null) {
       arriveTimeStart: form.arriveTimeStart || null,
       arriveTimeEnd: form.arriveTimeEnd || null,
       maxConnections: form.maxConnections ? Number(form.maxConnections) : null,
-      preferredAirlines: form.preferredAirlines
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      preferredAlliances: form.preferredAlliances
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      preferredAirlines: form.preferredAirlines,
+      preferredAlliances: form.preferredAlliances,
       maxLayoverMinutes: form.maxLayoverMinutes
         ? Number(form.maxLayoverMinutes)
         : null,
@@ -217,15 +220,20 @@ export function FlightBookerWorkspace({
   resultsBySearch,
   programsBySearch,
   balances: initialBalances,
+  loyaltyConnection: initialConnection,
+  loyaltyLinkConfigured,
   tripId,
   awardConfigured,
   emailForward,
   isDemo,
+  loyaltyFlash,
 }: {
   searches: AwardSearch[];
   resultsBySearch: Record<string, AwardResult[]>;
   programsBySearch: Record<string, string[]>;
   balances: LoyaltyBalance[];
+  loyaltyConnection: LoyaltyConnection | null;
+  loyaltyLinkConfigured: boolean;
   tripId: string | null;
   awardConfigured: boolean;
   emailForward: {
@@ -233,14 +241,18 @@ export function FlightBookerWorkspace({
     address: string | null;
   };
   isDemo: boolean;
+  loyaltyFlash?: string | null;
 }) {
   const [searches, setSearches] = useState(initialSearches);
   const [resultsMap] = useState(resultsBySearch);
   const [programsMap, setProgramsMap] = useState(programsBySearch);
   const [balances, setBalances] = useState(initialBalances);
+  const [loyaltyConnection, setLoyaltyConnection] = useState(initialConnection);
   const [form, setForm] = useState<FormState>(() => emptyForm(tripId));
   const [formError, setFormError] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(
+    loyaltyFlash ?? null,
+  );
   const [pending, startTransition] = useTransition();
   const [detailId, setDetailId] = useState<string | null>(null);
   const [bookUrl, setBookUrl] = useState<string | null>(null);
@@ -707,28 +719,18 @@ export function FlightBookerWorkspace({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="airlines">Preferred airlines</Label>
-                <Input
-                  id="airlines"
-                  placeholder="UA, NH"
-                  value={form.preferredAirlines}
-                  onChange={(e) =>
-                    patchForm({ preferredAirlines: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="alliances">Preferred alliances</Label>
-                <Input
-                  id="alliances"
-                  placeholder="star, oneworld"
-                  value={form.preferredAlliances}
-                  onChange={(e) =>
-                    patchForm({ preferredAlliances: e.target.value })
-                  }
-                />
-              </div>
+              <AirlinePreferenceSelect
+                value={form.preferredAirlines}
+                onChange={(preferredAirlines) =>
+                  patchForm({ preferredAirlines })
+                }
+              />
+              <AlliancePreferenceSelect
+                value={form.preferredAlliances}
+                onChange={(preferredAlliances) =>
+                  patchForm({ preferredAlliances })
+                }
+              />
             </div>
 
             <div className="rounded-[10px] border border-border bg-[var(--page-bg)] p-3">
@@ -899,9 +901,71 @@ export function FlightBookerWorkspace({
           <div className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
             <h2 className="font-semibold">Loyalty balances</h2>
             <p className="mt-0.5 text-xs text-muted">
-              Manual balances only — airline passwords are never collected. Marked as
-              manual until an authorized integration verifies them.
+              Link AwardWallet to pull live balances from programs you already store
+              there. Waypoint never asks for airline passwords. Manual entry remains
+              available as a fallback.
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {loyaltyLinkConfigured ? (
+                loyaltyConnection?.status === "connected" ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={pending || isDemo}
+                      onClick={() => {
+                        startTransition(async () => {
+                          try {
+                            const result = await syncAwardWalletBalancesAction();
+                            setActionMessage(
+                              `Synced ${result.count} AwardWallet balance(s).`,
+                            );
+                          } catch (e) {
+                            setActionMessage((e as Error).message);
+                          }
+                        });
+                      }}
+                    >
+                      Sync AwardWallet
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={pending || isDemo}
+                      onClick={() => {
+                        startTransition(async () => {
+                          await disconnectAwardWalletAction();
+                          setLoyaltyConnection((prev) =>
+                            prev ? { ...prev, status: "disconnected" } : prev,
+                          );
+                        });
+                      }}
+                    >
+                      Disconnect
+                    </Button>
+                    <span className="self-center text-xs text-muted">
+                      Connected
+                      {loyaltyConnection.last_synced_at
+                        ? ` · synced ${new Date(loyaltyConnection.last_synced_at).toLocaleString()}`
+                        : ""}
+                    </span>
+                  </>
+                ) : (
+                  <Button type="button" asChild>
+                    <a href="/api/loyalty/awardwallet/connect">
+                      Connect AwardWallet
+                    </a>
+                  </Button>
+                )
+              ) : (
+                <p className="w-full text-xs text-warning">
+                  Set <code>AWARDWALLET_API_KEY</code> (AwardWallet Business Account
+                  Access API) and register callback{" "}
+                  <code>/api/loyalty/awardwallet/callback</code> to enable live
+                  balance linking.
+                </p>
+              )}
+            </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <select
                 className="h-10 rounded-[8px] border border-input bg-white px-3 text-sm"
@@ -944,6 +1008,8 @@ export function FlightBookerWorkspace({
                           currency_label: "points",
                           source: "manual",
                           last_verified_at: now,
+                          external_account_id: null,
+                          provider: null,
                           created_at: now,
                           updated_at: now,
                         },
@@ -973,6 +1039,8 @@ export function FlightBookerWorkspace({
                           currency_label: "points",
                           source: "manual",
                           last_verified_at: new Date().toISOString(),
+                          external_account_id: null,
+                          provider: null,
                           created_at: new Date().toISOString(),
                           updated_at: new Date().toISOString(),
                         },
@@ -1001,7 +1069,9 @@ export function FlightBookerWorkspace({
                       </p>
                       <p className="text-xs text-muted">
                         {b.balance.toLocaleString()} {b.currency_label} ·{" "}
-                        {b.source === "verified" ? "Verified" : "Manual"}
+                        {b.source === "verified"
+                          ? `Verified${b.provider ? ` via ${b.provider}` : ""}`
+                          : "Manual"}
                         {b.last_verified_at
                           ? ` · ${new Date(b.last_verified_at).toLocaleDateString()}`
                           : ""}

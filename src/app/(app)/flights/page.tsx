@@ -8,19 +8,35 @@ import {
   getInboundEmailAddress,
   isAwardSearchConfigured,
   isEmailImportConfigured,
+  isLoyaltyLinkConfigured,
 } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
-import type { AwardResult, AwardSearch, LoyaltyBalance } from "@/types/database";
+import type {
+  AwardResult,
+  AwardSearch,
+  LoyaltyBalance,
+  LoyaltyConnection,
+} from "@/types/database";
 
 export const metadata = { title: "Flight Booker" };
 
 export default async function FlightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tripId?: string }>;
+  searchParams: Promise<{
+    tripId?: string;
+    loyaltyLinked?: string;
+    synced?: string;
+    loyaltyError?: string;
+  }>;
 }) {
   const params = await searchParams;
   const tripId = params.tripId ?? null;
+  const loyaltyFlash = params.loyaltyError
+    ? params.loyaltyError
+    : params.loyaltyLinked
+      ? `AwardWallet connected${params.synced ? ` · ${params.synced} balance(s) imported` : ""}.`
+      : null;
 
   if (isDemoModeEnabled() && (await hasDemoSession())) {
     const searches = demoAwardSearches();
@@ -32,10 +48,13 @@ export default async function FlightsPage({
           [searches[0].id]: ["united", "aeroplan"],
         }}
         balances={demoLoyaltyBalances()}
+        loyaltyConnection={null}
+        loyaltyLinkConfigured={false}
         tripId={tripId}
         awardConfigured={isAwardSearchConfigured()}
         emailForward={{ configured: false, address: null }}
         isDemo
+        loyaltyFlash={null}
       />
     );
   }
@@ -76,6 +95,13 @@ export default async function FlightsPage({
     .eq("user_id", user!.id)
     .order("updated_at", { ascending: false });
 
+  const { data: connection } = await supabase
+    .from("loyalty_connections")
+    .select("*")
+    .eq("user_id", user!.id)
+    .eq("provider", "awardwallet")
+    .maybeSingle();
+
   const { data: alias } = await supabase
     .from("email_aliases")
     .select("alias_token")
@@ -113,6 +139,8 @@ export default async function FlightsPage({
       resultsBySearch={resultsBySearch}
       programsBySearch={programsBySearch}
       balances={(balances ?? []) as LoyaltyBalance[]}
+      loyaltyConnection={(connection as LoyaltyConnection | null) ?? null}
+      loyaltyLinkConfigured={isLoyaltyLinkConfigured()}
       tripId={tripId}
       awardConfigured={isAwardSearchConfigured()}
       emailForward={{
@@ -120,6 +148,7 @@ export default async function FlightsPage({
         address: personalAddress,
       }}
       isDemo={false}
+      loyaltyFlash={loyaltyFlash}
     />
   );
 }

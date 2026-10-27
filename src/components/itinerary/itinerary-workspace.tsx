@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import {
   ArrowDown,
@@ -45,6 +46,7 @@ import type { PoiPlace } from "@/lib/poi/types";
 import type { ItineraryItem, Profile, Trip, TripMember } from "@/types/database";
 import { TransportSegmentList } from "@/components/itinerary/transport-segments";
 import { CollaboratorsPanel } from "@/components/itinerary/collaborators-panel";
+import { TripForwardEmail } from "@/components/itinerary/trip-forward-email";
 
 type SuggestedItem = {
   title: string;
@@ -66,13 +68,16 @@ export function ItineraryWorkspace({
   members,
   role,
   currentUserId,
+  forwardEmail,
 }: {
   trip: Trip;
   items: ItineraryItem[];
   members: (TripMember & { profiles: Profile | null })[];
   role: "owner" | "editor" | "viewer";
   currentUserId: string;
+  forwardEmail?: { configured: boolean; address: string | null };
 }) {
+  const router = useRouter();
   const canEdit = role === "owner" || role === "editor";
   const isDemoTrip = trip.id === DEMO_TRIP_ID;
   const [items, setItems] = useState(initialItems);
@@ -144,6 +149,8 @@ export function ItineraryWorkspace({
         start_date: startDate || null,
         end_date: endDate || null,
       });
+      // Refresh so the trip forward address (+slug) stays in sync with the name.
+      router.refresh();
     } finally {
       setSaving(false);
     }
@@ -483,6 +490,11 @@ export function ItineraryWorkspace({
 
   return (
     <div className="space-y-4">
+      <TripForwardEmail
+        address={forwardEmail?.address ?? null}
+        configured={Boolean(forwardEmail?.configured)}
+        tripName={name}
+      />
       <div className="flex flex-col gap-3 rounded-[12px] border border-border bg-card p-4 shadow-sm lg:flex-row lg:items-end lg:justify-between">
         <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5 sm:col-span-2">

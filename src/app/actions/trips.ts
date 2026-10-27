@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import {
+  allocateUniqueTripSlug,
+  slugifyTripName,
+} from "@/lib/email/trip-address";
 import { createClient } from "@/lib/supabase/server";
 
 export async function createTripAction() {
@@ -12,6 +16,12 @@ export async function createTripAction() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const tempId = crypto.randomUUID();
+  const emailSlug = await allocateUniqueTripSlug(
+    supabase,
+    slugifyTripName(null, tempId),
+  );
+
   const { data: trip, error } = await supabase
     .from("trips")
     .insert({
@@ -19,6 +29,7 @@ export async function createTripAction() {
       name: null,
       destination_name: null,
       status: "planned",
+      email_slug: emailSlug,
     })
     .select("*")
     .single();
@@ -74,7 +85,14 @@ export async function updateTripAction(input: z.infer<typeof updateTripSchema>) 
   if (!user) throw new Error("Unauthorized");
 
   const { tripId, ...rest } = parsed;
-  const { error } = await supabase.from("trips").update(rest).eq("id", tripId);
+  const patch: Record<string, unknown> = { ...rest };
+
+  if (parsed.name !== undefined) {
+    const desired = slugifyTripName(parsed.name, tripId);
+    patch.email_slug = await allocateUniqueTripSlug(supabase, desired, tripId);
+  }
+
+  const { error } = await supabase.from("trips").update(patch).eq("id", tripId);
   if (error) throw new Error(error.message);
 
   revalidatePath(`/trips/${tripId}`);

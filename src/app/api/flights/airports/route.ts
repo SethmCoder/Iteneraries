@@ -17,5 +17,5 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") ?? "";
   // Static local dataset — keeps autocomplete available without a network geocoder.
-  return NextResponse.json({ results: searchAirports(q, 8) });
+  return NextResponse.json({ results: searchAirports(q, 10) });
 }

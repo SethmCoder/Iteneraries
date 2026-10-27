@@ -92,6 +92,21 @@ export type LoyaltyBalance = {
   currency_label: string;
   source: LoyaltyBalanceSource;
   last_verified_at: string | null;
+  external_account_id: string | null;
+  provider: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LoyaltyConnection = {
+  id: string;
+  user_id: string;
+  provider: "awardwallet";
+  external_user_id: string;
+  access_level: string;
+  status: "connected" | "disconnected" | "error";
+  last_synced_at: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 };
@@ -176,6 +191,7 @@ export type Trip = {
   end_date: string | null;
   timezone: string | null;
   status: TripStatus;
+  email_slug: string | null;
   created_at: string;
   updated_at: string;
 };

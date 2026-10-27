@@ -9,6 +9,11 @@ import {
   hasDemoSession,
   isDemoModeEnabled,
 } from "@/lib/demo";
+import { buildTripForwardAddress } from "@/lib/email/trip-address";
+import {
+  getInboundEmailAddress,
+  isEmailImportConfigured,
+} from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import type { ItineraryItem, Profile, Trip, TripMember } from "@/types/database";
 
@@ -31,6 +36,7 @@ export default async function TripDetailPage({
   if (isDemoModeEnabled() && (await hasDemoSession())) {
     if (tripId !== DEMO_TRIP_ID) notFound();
     const trip = demoTrips()[0];
+    const inbound = getInboundEmailAddress();
     return (
       <ItineraryWorkspace
         trip={trip}
@@ -49,6 +55,10 @@ export default async function TripDetailPage({
         ]}
         role="owner"
         currentUserId={DEMO_USER_ID}
+        forwardEmail={{
+          configured: isEmailImportConfigured(),
+          address: buildTripForwardAddress(inbound, trip.email_slug),
+        }}
       />
     );
   }
@@ -95,13 +105,20 @@ export default async function TripDetailPage({
     profiles: Array.isArray(m.profiles) ? m.profiles[0] ?? null : m.profiles,
   }));
 
+  const inbound = getInboundEmailAddress();
+  const typedTrip = trip as Trip;
+
   return (
     <ItineraryWorkspace
-      trip={trip as Trip}
+      trip={typedTrip}
       items={(items ?? []) as ItineraryItem[]}
       members={normalizedMembers}
       role={membership.role as "owner" | "editor" | "viewer"}
       currentUserId={user.id}
+      forwardEmail={{
+        configured: isEmailImportConfigured(),
+        address: buildTripForwardAddress(inbound, typedTrip.email_slug),
+      }}
     />
   );
 }

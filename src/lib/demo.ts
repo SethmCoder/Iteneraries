@@ -60,6 +60,7 @@ export function demoTrips(): Trip[] {
       end_date: "2026-11-14",
       timezone: "Europe/Paris",
       status: "planned",
+      email_slug: "parisclientweek",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },

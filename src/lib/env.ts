@@ -111,3 +111,12 @@ export function getResendFromEmail(): string | null {
 export function isOutboundEmailConfigured(): boolean {
   return Boolean(getResendApiKey() && getResendFromEmail());
 }
+
+/** AwardWallet Business Account Access API key (X-Authentication). */
+export function getAwardWalletApiKey(): string | null {
+  return process.env.AWARDWALLET_API_KEY?.trim() || null;
+}
+
+export function isLoyaltyLinkConfigured(): boolean {
+  return Boolean(getAwardWalletApiKey());
+}

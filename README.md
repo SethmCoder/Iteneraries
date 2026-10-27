@@ -100,13 +100,14 @@ The billing row is structured for a later paid plan (`plan`, `billing_provider`,
 
 ## Flight Booker (award seats)
 
-Open **Flight Booker** from the avatar menu or the trip toolbar. Create award searches, record manual loyalty balances, and review matches when a provider key is present.
+Open **Flight Booker** from the avatar menu or the trip toolbar. Create award searches, link live loyalty balances, and review matches when provider keys are present.
 
 1. Obtain a Seats.aero Partner API key (Pro non-commercial or commercial agreement). Set `SEATS_AERO_API_KEY`.
 2. Set `CRON_SECRET` and deploy on Vercel so the daily cron in `vercel.json` can call `/api/cron/award-monitor` with `Authorization: Bearer $CRON_SECRET` (Hobby plans allow at most one run per day per cron).
-3. Without the API key, searches save as **Setup Required** — Waypoint never invents award availability or presents cash fares as awards.
-4. Booking is a confirmed handoff to the airline / program site. Points are never redeemed by Waypoint.
-5. Forwarding address for reservation emails is shown on Flight Booker and in Settings when Resend inbound is configured.
+3. Optional live balances: create an [AwardWallet Business](https://awardwallet.com/api/account) account, set `AWARDWALLET_API_KEY`, and register redirect `https://<host>/api/loyalty/awardwallet/callback`. Users connect via OAuth (`read_balances`) — Waypoint never stores airline passwords.
+4. Without Seats.aero, searches save as **Setup Required** — Waypoint never invents award availability or presents cash fares as awards.
+5. Booking is a confirmed handoff to the airline / program site. Points are never redeemed by Waypoint.
+6. Each trip has a plus-addressed forward inbox (e.g. `planner+parisclientweek@yourdomain.com`) on the trip view when `INBOUND_EMAIL_ADDRESS` is set. Renaming the trip updates the slug.
 
 ## Email import (Resend)
 

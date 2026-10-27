@@ -62,18 +62,32 @@ export async function POST(request: Request) {
     : typeof toField === "string"
       ? [toField]
       : [];
-  const aliasMatch = recipients
-    .join(" ")
-    .match(/(?:^|<|\s)([a-zA-Z0-9]+)(?:@)/);
-  let userId: string | null = null;
 
-  if (aliasMatch?.[1]) {
-    const { data: alias } = await admin
-      .from("email_aliases")
-      .select("user_id")
-      .eq("alias_token", aliasMatch[1])
+  const { extractPlusTagFromRecipients } = await import(
+    "@/lib/email/trip-address"
+  );
+  const plusTag = extractPlusTagFromRecipients(recipients);
+
+  let userId: string | null = null;
+  let tripId: string | null = null;
+
+  if (plusTag) {
+    const { data: trip } = await admin
+      .from("trips")
+      .select("id, owner_id")
+      .eq("email_slug", plusTag)
       .maybeSingle();
-    userId = alias?.user_id ?? null;
+    if (trip) {
+      tripId = trip.id as string;
+      userId = trip.owner_id as string;
+    } else {
+      const { data: alias } = await admin
+        .from("email_aliases")
+        .select("user_id")
+        .eq("alias_token", plusTag)
+        .maybeSingle();
+      userId = alias?.user_id ?? null;
+    }
   }
 
   const fromAddress =
@@ -152,6 +166,7 @@ export async function POST(request: Request) {
     await admin.from("reservation_reviews").insert({
       imported_email_id: imported.id,
       user_id: userId,
+      trip_id: tripId,
       extracted_data: extracted,
       status: "pending",
     });

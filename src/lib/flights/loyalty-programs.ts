@@ -1,0 +1,16 @@
+export const LOYALTY_PROGRAMS = [
+  { id: "united", label: "United MileagePlus" },
+  { id: "american", label: "American AAdvantage" },
+  { id: "delta", label: "Delta SkyMiles" },
+  { id: "aeroplan", label: "Air Canada Aeroplan" },
+  { id: "alaska", label: "Alaska Mileage Plan" },
+  { id: "flyingblue", label: "Flying Blue" },
+  { id: "britishairways", label: "British Airways Avios" },
+  { id: "lufthansa", label: "Miles & More" },
+  { id: "singapore", label: "KrisFlyer" },
+  { id: "qatar", label: "Privilege Club" },
+  { id: "emirates", label: "Skywards" },
+  { id: "jetblue", label: "TrueBlue" },
+  { id: "virginatlantic", label: "Virgin Atlantic Flying Club" },
+  { id: "qantas", label: "Qantas Frequent Flyer" },
+] as const;

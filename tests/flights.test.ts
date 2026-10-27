@@ -182,5 +182,11 @@ describe("searchAirports", () => {
   it("finds airports by code and city", () => {
     expect(searchAirports("SFO")[0]?.code).toBe("SFO");
     expect(searchAirports("tokyo").some((a) => a.code === "NRT")).toBe(true);
+    expect(searchAirports("san fran")[0]?.code).toBe("SFO");
+  });
+
+  it("surfaces major hubs for short queries", () => {
+    expect(searchAirports("LA").some((a) => a.code === "LAX")).toBe(true);
+    expect(searchAirports("los angeles")[0]?.code).toBe("LAX");
   });
 });
