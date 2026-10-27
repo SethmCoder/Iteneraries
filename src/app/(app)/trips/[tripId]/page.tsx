@@ -1,5 +1,14 @@
 import { notFound, redirect } from "next/navigation";
 import { ItineraryWorkspace } from "@/components/itinerary/itinerary-workspace";
+import {
+  DEMO_TRIP_ID,
+  DEMO_USER_ID,
+  demoItineraryItems,
+  demoProfile,
+  demoTrips,
+  hasDemoSession,
+  isDemoModeEnabled,
+} from "@/lib/demo";
 import { createClient } from "@/lib/supabase/server";
 import type { ItineraryItem, Profile, Trip, TripMember } from "@/types/database";
 
@@ -18,6 +27,32 @@ export default async function TripDetailPage({
   params: Promise<{ tripId: string }>;
 }) {
   const { tripId } = await params;
+
+  if (isDemoModeEnabled() && (await hasDemoSession())) {
+    if (tripId !== DEMO_TRIP_ID) notFound();
+    const trip = demoTrips()[0];
+    return (
+      <ItineraryWorkspace
+        trip={trip}
+        items={demoItineraryItems()}
+        members={[
+          {
+            id: "00000000-0000-4000-8000-000000000201",
+            trip_id: DEMO_TRIP_ID,
+            user_id: DEMO_USER_ID,
+            role: "owner",
+            invited_by: DEMO_USER_ID,
+            invitation_status: "accepted",
+            created_at: new Date().toISOString(),
+            profiles: demoProfile(),
+          },
+        ]}
+        role="owner"
+        currentUserId={DEMO_USER_ID}
+      />
+    );
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

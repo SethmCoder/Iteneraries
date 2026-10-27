@@ -1,9 +1,21 @@
 import { SocialWorkspace } from "@/components/social/social-workspace";
+import { hasDemoSession, isDemoModeEnabled } from "@/lib/demo";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Social" };
 
 export default async function SocialPage() {
+  if (isDemoModeEnabled() && (await hasDemoSession())) {
+    return (
+      <SocialWorkspace
+        currentUserId="00000000-0000-4000-8000-000000000001"
+        friendships={[]}
+        profiles={[]}
+        invitations={[]}
+      />
+    );
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

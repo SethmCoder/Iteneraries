@@ -1,11 +1,38 @@
 import { NewItineraryButton } from "@/components/trips/new-itinerary-button";
 import { TripsWorkspace } from "@/components/trips/trips-workspace";
+import {
+  demoProfile,
+  demoTrips,
+  hasDemoSession,
+  isDemoModeEnabled,
+} from "@/lib/demo";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, Trip, TripMember } from "@/types/database";
 
 export const metadata = { title: "Trips" };
 
 export default async function TripsPage() {
+  if (isDemoModeEnabled() && (await hasDemoSession())) {
+    const trips = demoTrips();
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">Your trips</h1>
+            <p className="text-sm text-muted">
+              Preview data — explore the map and UI without Supabase.
+            </p>
+          </div>
+          <NewItineraryButton className="hidden sm:inline-flex" />
+        </div>
+        <TripsWorkspace
+          trips={trips}
+          membersByTrip={{ [trips[0].id]: [demoProfile()] }}
+        />
+      </div>
+    );
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

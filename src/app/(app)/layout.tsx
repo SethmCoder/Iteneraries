@@ -1,5 +1,11 @@
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/app-header";
+import {
+  demoProfile,
+  demoTrips,
+  hasDemoSession,
+  isDemoModeEnabled,
+} from "@/lib/demo";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, Trip } from "@/types/database";
 
@@ -10,6 +16,20 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
+  if (isDemoModeEnabled() && (await hasDemoSession())) {
+    return (
+      <div className="flex min-h-screen flex-col bg-[var(--page-bg)]">
+        <div className="bg-warning/10 px-4 py-2 text-center text-xs font-medium text-warning">
+          Preview mode — UI only. Changes are not saved until Supabase is connected.
+        </div>
+        <AppHeader profile={demoProfile()} nextTrip={demoTrips()[0] ?? null} />
+        <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 md:px-6">
+          {children}
+        </main>
+      </div>
+    );
+  }
+
   let profile: Profile | null = null;
   let nextTrip: Trip | null = null;
 

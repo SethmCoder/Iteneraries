@@ -85,8 +85,17 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
   }
 
   async function logout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
+    try {
+      await fetch("/api/demo/logout", { method: "POST" });
+    } catch {
+      // ignore
+    }
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch {
+      // Demo mode or missing Supabase config
+    }
     router.push("/login");
     router.refresh();
   }

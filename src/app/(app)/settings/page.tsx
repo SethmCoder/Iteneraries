@@ -1,5 +1,12 @@
 import { SettingsWorkspace } from "@/components/settings/settings-workspace";
 import {
+  demoPreferences,
+  demoProfile,
+  demoTrips,
+  hasDemoSession,
+  isDemoModeEnabled,
+} from "@/lib/demo";
+import {
   getInboundEmailAddress,
   isAiConfigured,
   isEmailImportConfigured,
@@ -9,6 +16,28 @@ import { createClient } from "@/lib/supabase/server";
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
+  if (isDemoModeEnabled() && (await hasDemoSession())) {
+    const trips = demoTrips().map((t) => ({
+      id: t.id,
+      name: t.name,
+      destination_name: t.destination_name,
+    }));
+    return (
+      <SettingsWorkspace
+        email="preview@example.com"
+        profile={demoProfile()}
+        preferences={demoPreferences()}
+        pendingReviews={[]}
+        trips={trips}
+        emailImport={{
+          configured: false,
+          address: null,
+          aiConfigured: false,
+        }}
+      />
+    );
+  }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -58,10 +87,16 @@ export default async function SettingsPage() {
       preferences={preferences}
       pendingReviews={(reviews ?? []) as never[]}
       trips={
-        (trips ?? []).map((t) => {
-          const trip = Array.isArray(t.trips) ? t.trips[0] : t.trips;
-          return trip as { id: string; name: string | null; destination_name: string | null };
-        }).filter(Boolean)
+        (trips ?? [])
+          .map((t) => {
+            const trip = Array.isArray(t.trips) ? t.trips[0] : t.trips;
+            return trip as {
+              id: string;
+              name: string | null;
+              destination_name: string | null;
+            };
+          })
+          .filter(Boolean)
       }
       emailImport={{
         configured: isEmailImportConfigured(),

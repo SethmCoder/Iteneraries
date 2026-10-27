@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
+import { getRequestUserId } from "@/lib/auth-guard";
 import { searchPlaces } from "@/lib/geo/nominatim";
 import { rateLimit } from "@/lib/rate-limit";
-import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
+    const userId = await getRequestUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const limited = rateLimit(`geo:${user.id}`, 20, 60_000);
+    const limited = rateLimit(`geo:${userId}`, 20, 60_000);
     if (!limited.ok) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }

@@ -13,11 +13,23 @@ Waypoint is a business travel planning web application. Create trips, build chro
 - OpenAI-compatible API for suggestions and email extraction
 - Resend inbound email webhooks
 
+## Preview without Supabase
+
+To browse the deployed UI without connecting Supabase, set these on Vercel (or in `.env.local`):
+
+```bash
+NEXT_PUBLIC_DEMO_MODE=true
+DEMO_PASSWORD=your-preview-password   # optional; blank allows any password
+```
+
+Then open `/login` and click **Enter preview**. You’ll get sample Paris trip data; nothing is persisted. Turn this off once real auth is configured.
+
 ## What works without credentials
 
 | Area | Status without external accounts |
 |---|---|
 | UI pages, design system, navigation | Works |
+| Demo/preview login | Works when `NEXT_PUBLIC_DEMO_MODE=true` |
 | Auth / trip persistence | Requires Supabase |
 | Maps + OSM tiles | Works |
 | Dynamic POIs (Overpass) | Works when network allows (shared public API; rate-limited) |

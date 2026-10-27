@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getRequestUserId } from "@/lib/auth-guard";
 import { getPoisForViewport } from "@/lib/poi";
 import { rateLimit } from "@/lib/rate-limit";
-import { createClient } from "@/lib/supabase/server";
 
 const categorySchema = z.enum([
   "attractions",
@@ -25,15 +25,12 @@ const bodySchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
+    const userId = await getRequestUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const limited = rateLimit(`poi:${user.id}`, 30, 60_000);
+    const limited = rateLimit(`poi:${userId}`, 30, 60_000);
     if (!limited.ok) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }

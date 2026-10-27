@@ -15,12 +15,16 @@ import { APP_NAME } from "@/lib/constants";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { loginSchema, type LoginInput } from "@/lib/validations/auth";
 
+const demoModeEnabled = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/trips";
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [demoPassword, setDemoPassword] = useState("");
+  const [demoLoading, setDemoLoading] = useState(false);
   const {
     register,
     handleSubmit,
@@ -30,8 +34,14 @@ function LoginForm() {
   async function onSubmit(values: LoginInput) {
     setError(null);
     if (!isSupabaseConfigured()) {
+      if (demoModeEnabled) {
+        setError(
+          "Supabase is not connected. Use Preview login below to browse the UI.",
+        );
+        return;
+      }
       setError(
-        "Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local.",
+        "Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
       );
       return;
     }
@@ -49,6 +59,29 @@ function LoginForm() {
       router.refresh();
     } catch {
       setError("Unable to sign in. Please try again.");
+    }
+  }
+
+  async function enterPreview() {
+    setError(null);
+    setDemoLoading(true);
+    try {
+      const res = await fetch("/api/demo/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: demoPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Unable to enter preview.");
+        return;
+      }
+      router.push(next);
+      router.refresh();
+    } catch {
+      setError("Unable to enter preview.");
+    } finally {
+      setDemoLoading(false);
     }
   }
 
@@ -103,6 +136,37 @@ function LoginForm() {
           {isSubmitting ? "Signing in…" : "Log In"}
         </Button>
       </form>
+
+      {demoModeEnabled ? (
+        <div className="space-y-3 rounded-[12px] border border-border bg-[var(--page-bg)] p-4">
+          <div>
+            <p className="text-sm font-semibold">Preview without Supabase</p>
+            <p className="mt-1 text-xs text-muted">
+              Browse the live UI with sample trip data. Nothing is saved.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="demo-password">Preview password</Label>
+            <Input
+              id="demo-password"
+              type="password"
+              value={demoPassword}
+              onChange={(e) => setDemoPassword(e.target.value)}
+              placeholder="Leave blank if no DEMO_PASSWORD is set"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            disabled={demoLoading}
+            onClick={() => void enterPreview()}
+          >
+            {demoLoading ? "Opening preview…" : "Enter preview"}
+          </Button>
+        </div>
+      ) : null}
+
       <div className="relative my-2">
         <Separator />
         <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs text-muted">
@@ -118,7 +182,13 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<AuthCard title="Welcome back"><p className="text-center text-muted">Loading…</p></AuthCard>}>
+    <Suspense
+      fallback={
+        <AuthCard title="Welcome back">
+          <p className="text-center text-muted">Loading…</p>
+        </AuthCard>
+      }
+    >
       <LoginForm />
     </Suspense>
   );

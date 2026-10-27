@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getRequestUserId } from "@/lib/auth-guard";
 import { getRoute } from "@/lib/routing";
 import { rateLimit } from "@/lib/rate-limit";
-import { createClient } from "@/lib/supabase/server";
 
 const schema = z.object({
   from: z.object({ lat: z.number(), lon: z.number() }),
@@ -12,15 +12,12 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
+    const userId = await getRequestUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const limited = rateLimit(`route:${user.id}`, 40, 60_000);
+    const limited = rateLimit(`route:${userId}`, 40, 60_000);
     if (!limited.ok) {
       return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
     }
