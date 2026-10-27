@@ -16,6 +16,7 @@ export const metadata: Metadata = {
   },
   description:
     "Plan, organize, and collaborate on business travel itineraries in one place.",
+  applicationName: APP_NAME,
 };
 
 export default function RootLayout({
