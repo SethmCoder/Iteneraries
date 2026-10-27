@@ -211,13 +211,13 @@ function PoiLayer({
   return (
     <>
       {loading ? (
-        <div className="absolute right-3 top-3 z-[1000] flex items-center gap-1.5 rounded-[8px] border border-border bg-card px-2 py-1 text-xs text-muted shadow-sm">
+        <div className="pointer-events-none absolute right-3 top-14 z-[450] flex items-center gap-1.5 rounded-[8px] border border-border bg-card px-2 py-1 text-xs text-muted shadow-sm">
           <Loader2 className="h-3 w-3 animate-spin" />
           Loading places…
         </div>
       ) : null}
       {error ? (
-        <div className="absolute right-3 top-3 z-[1000] rounded-[8px] border border-border bg-card px-2 py-1 text-xs text-destructive shadow-sm">
+        <div className="absolute right-3 top-14 z-[450] max-w-[220px] rounded-[8px] border border-border bg-card px-2 py-1 text-xs text-destructive shadow-sm">
           {error}{" "}
           <button
             type="button"
@@ -282,33 +282,75 @@ function SearchAndFly({
 }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<
-    { display_name: string; lat: string; lon: string }[]
+    { display_name: string; lat: number; lon: number; name?: string }[]
   >([]);
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function search() {
-    if (q.trim().length < 2) return;
-    const res = await fetch(`/api/geo/search?q=${encodeURIComponent(q.trim())}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    setResults(data.results ?? []);
-    setOpen(true);
+    const query = q.trim();
+    if (query.length < 2) {
+      setError("Enter at least 2 characters.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/geo/search?q=${encodeURIComponent(query)}`,
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Search failed");
+      }
+      const next = (data.results ?? []) as Array<{
+        display_name: string;
+        lat: number;
+        lon: number;
+        name?: string;
+      }>;
+      setResults(next);
+      setOpen(true);
+      if (next.length === 0) {
+        setError("No places found. Try a more specific name.");
+      }
+    } catch (e) {
+      setResults([]);
+      setOpen(false);
+      setError((e as Error).message || "Search failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <div className="absolute left-3 top-3 z-[1000] w-[min(100%-1.5rem,280px)]">
+    <div className="absolute left-3 top-3 z-[450] w-[min(calc(100%-7.5rem),260px)]">
       <div className="flex gap-1">
         <Input
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setError(null);
+          }}
           onKeyDown={(e) => e.key === "Enter" && void search()}
           placeholder="Search places…"
           className="bg-card shadow-sm"
         />
-        <Button type="button" size="sm" onClick={() => void search()}>
-          Go
+        <Button
+          type="button"
+          size="sm"
+          disabled={loading}
+          onClick={() => void search()}
+        >
+          {loading ? "…" : "Go"}
         </Button>
       </div>
+      {error ? (
+        <p className="mt-1 rounded-[8px] border border-border bg-card px-2 py-1 text-[11px] text-destructive shadow-sm">
+          {error}
+        </p>
+      ) : null}
       {open && results.length > 0 ? (
         <ul className="mt-1 max-h-48 overflow-auto rounded-[8px] border border-border bg-card shadow-md">
           {results.map((r) => (
@@ -319,7 +361,8 @@ function SearchAndFly({
                 onClick={() => {
                   onFly(Number(r.lat), Number(r.lon), r.display_name);
                   setOpen(false);
-                  setQ(r.display_name);
+                  setError(null);
+                  setQ(r.name || r.display_name);
                 }}
               >
                 {r.display_name}
@@ -344,6 +387,26 @@ function FlyToController({
   return null;
 }
 
+type MapBaseLayer = "streets" | "satellite";
+
+const BASE_LAYERS: Record<
+  MapBaseLayer,
+  { url: string; attribution: string; maxZoom?: number }
+> = {
+  streets: {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  },
+  satellite: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    maxZoom: 19,
+  },
+};
+
 export default function MapInner({
   pins,
   selectedPinId,
@@ -361,8 +424,11 @@ export default function MapInner({
   const [categories, setCategories] = useState<PoiCategory[]>([
     ...POI_CATEGORIES,
   ]);
+  const [baseLayer, setBaseLayer] = useState<MapBaseLayer>("streets");
 
   const itineraryOsmIds = useMemo(() => new Set<string>(), []);
+  const tiles = BASE_LAYERS[baseLayer];
+  const isSatellite = baseLayer === "satellite";
 
   function toggleCategory(cat: PoiCategory) {
     setCategories((prev) =>
@@ -371,7 +437,10 @@ export default function MapInner({
   }
 
   return (
-    <div className={`relative overflow-hidden rounded-[12px] border border-border ${className ?? ""}`} style={{ height, minHeight: 320 }}>
+    <div
+      className={`relative z-0 isolate overflow-hidden rounded-[12px] border border-border ${className ?? ""}`}
+      style={{ height, minHeight: 320 }}
+    >
       <MapContainer
         center={[20, 0]}
         zoom={2}
@@ -380,20 +449,22 @@ export default function MapInner({
         attributionControl
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          key={baseLayer}
+          attribution={tiles.attribution}
+          url={tiles.url}
+          maxZoom={tiles.maxZoom}
         />
         <FitBounds pins={pins} routes={routes} />
         <CenterOnSelected pins={pins} selectedPinId={selectedPinId} />
         <FlyToController target={flyTarget} />
         {routes.map((route) => (
           <Polyline
-            key={route.id}
+            key={`${route.id}-${baseLayer}`}
             positions={route.positions}
             pathOptions={{
-              color: "#1616C9",
-              weight: 5,
-              opacity: 0.85,
+              color: isSatellite ? "#EEEEFF" : "#1616C9",
+              weight: isSatellite ? 6 : 5,
+              opacity: 0.9,
               lineJoin: "round",
               lineCap: "round",
             }}
@@ -442,8 +513,34 @@ export default function MapInner({
       <SearchAndFly
         onFly={(lat, lon) => setFlyTarget({ lat, lon })}
       />
+      <div className="absolute right-3 top-3 z-[450] flex items-center rounded-[8px] border border-border bg-card p-1 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setBaseLayer("streets")}
+          className={`rounded-[6px] px-2.5 py-1 text-[11px] font-semibold transition-colors duration-150 ${
+            baseLayer === "streets"
+              ? "bg-brand text-white"
+              : "text-muted hover:bg-brand-light hover:text-brand"
+          }`}
+          aria-pressed={baseLayer === "streets"}
+        >
+          Map
+        </button>
+        <button
+          type="button"
+          onClick={() => setBaseLayer("satellite")}
+          className={`rounded-[6px] px-2.5 py-1 text-[11px] font-semibold transition-colors duration-150 ${
+            baseLayer === "satellite"
+              ? "bg-brand text-white"
+              : "text-muted hover:bg-brand-light hover:text-brand"
+          }`}
+          aria-pressed={baseLayer === "satellite"}
+        >
+          Satellite
+        </button>
+      </div>
       {enablePoi ? (
-        <div className="absolute bottom-3 left-3 right-3 z-[1000] flex flex-wrap gap-1">
+        <div className="absolute bottom-3 left-3 right-3 z-[450] flex flex-wrap gap-1">
           {CATEGORY_FILTERS.map((c) => (
             <button
               key={c.id}

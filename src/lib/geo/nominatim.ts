@@ -9,7 +9,6 @@ export type GeocodeResult = {
 
 export class NominatimError extends Error {
   readonly status?: number;
-  /** Seconds the caller should wait before retrying, when known. */
   readonly retryAfterSeconds?: number;
   constructor(message: string, status?: number, retryAfterSeconds?: number) {
     super(message);
@@ -26,17 +25,18 @@ export type SearchPlacesOptions = {
   acceptLanguage?: string;
 };
 
-/** Nominatim usage policy: max 1 request per second. */
 const MIN_INTERVAL_MS = 1100;
 const RESULT_CACHE_TTL_MS = 10 * 60_000;
 const RESULT_CACHE_MAX = 200;
 
 let queue: Promise<unknown> = Promise.resolve();
 let lastRequestAt = 0;
-/** If Nominatim returns 429, back off until this timestamp. */
 let blockedUntil = 0;
 
-const resultCache = new Map<string, { results: GeocodeResult[]; expiresAt: number }>();
+const resultCache = new Map<
+  string,
+  { results: GeocodeResult[]; expiresAt: number }
+>();
 
 function abortError(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -60,7 +60,6 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Serialize requests and enforce the minimum interval between them. */
 function schedule<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   const run = async (): Promise<T> => {
     if (signal?.aborted) throw abortError(signal);
@@ -82,7 +81,7 @@ function schedule<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   return result;
 }
 
-function parseResults(raw: unknown): GeocodeResult[] {
+function parseNominatimResults(raw: unknown): GeocodeResult[] {
   if (!Array.isArray(raw)) return [];
   const results: GeocodeResult[] = [];
   for (const item of raw) {
@@ -102,14 +101,126 @@ function parseResults(raw: unknown): GeocodeResult[] {
   return results;
 }
 
+function parsePhotonResults(raw: unknown): GeocodeResult[] {
+  if (typeof raw !== "object" || raw === null) return [];
+  const features = (raw as { features?: unknown }).features;
+  if (!Array.isArray(features)) return [];
+  const results: GeocodeResult[] = [];
+  for (const feature of features) {
+    if (typeof feature !== "object" || feature === null) continue;
+    const geometry = (feature as { geometry?: { coordinates?: unknown } })
+      .geometry;
+    const props = (feature as { properties?: Record<string, unknown> })
+      .properties;
+    const coords = geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2 || !props) continue;
+    const lon = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const name =
+      typeof props.name === "string" && props.name.trim()
+        ? props.name.trim()
+        : typeof props.street === "string"
+          ? props.street
+          : "";
+    const parts = [
+      name,
+      typeof props.city === "string" ? props.city : null,
+      typeof props.state === "string" ? props.state : null,
+      typeof props.country === "string" ? props.country : null,
+    ].filter(Boolean);
+    const display_name = parts.join(", ");
+    if (!display_name) continue;
+    results.push({
+      name: name || display_name.split(",")[0],
+      lat,
+      lon,
+      display_name,
+    });
+  }
+  return results;
+}
+
+async function searchNominatim(
+  q: string,
+  limit: number,
+  options: SearchPlacesOptions,
+): Promise<GeocodeResult[]> {
+  const url = new URL("/search", getNominatimBaseUrl());
+  url.searchParams.set("q", q);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("addressdetails", "0");
+  url.searchParams.set("limit", String(limit));
+  if (options.countryCodes?.length) {
+    url.searchParams.set("countrycodes", options.countryCodes.join(","));
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": getGeocoderUserAgent(),
+      Accept: "application/json",
+    },
+    signal: options.signal,
+    cache: "no-store",
+  });
+
+  if (response.status === 429 || response.status === 403) {
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const seconds =
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60;
+    blockedUntil = Date.now() + seconds * 1000;
+    throw new NominatimError(
+      "Geocoding is rate limited by the provider. Please try again shortly.",
+      response.status,
+      seconds,
+    );
+  }
+  if (!response.ok) {
+    throw new NominatimError(
+      `Geocoding provider responded with status ${response.status}.`,
+      response.status,
+    );
+  }
+
+  return parseNominatimResults(await response.json());
+}
+
+async function searchPhoton(
+  q: string,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<GeocodeResult[]> {
+  const url = new URL("https://photon.komoot.io/api/");
+  url.searchParams.set("q", q);
+  url.searchParams.set("limit", String(limit));
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      "User-Agent": getGeocoderUserAgent(),
+      Accept: "application/json",
+    },
+    signal,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new NominatimError(
+      `Backup geocoder responded with status ${response.status}.`,
+      response.status,
+    );
+  }
+
+  return parsePhotonResults(await response.json());
+}
+
 export async function searchPlaces(
   query: string,
   options: SearchPlacesOptions = {},
 ): Promise<GeocodeResult[]> {
   const q = query.trim();
-  if (q.length === 0) return [];
+  if (q.length < 2) return [];
 
-  const limit = Math.max(1, Math.min(20, options.limit ?? 5));
+  const limit = Math.max(1, Math.min(20, options.limit ?? 8));
   const cacheKey = [
     q.toLowerCase(),
     limit,
@@ -120,28 +231,22 @@ export async function searchPlaces(
   const cached = resultCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.results;
 
-  const url = new URL("/search", getNominatimBaseUrl());
-  url.searchParams.set("q", q);
-  url.searchParams.set("format", "jsonv2");
-  url.searchParams.set("limit", String(limit));
-  if (options.countryCodes?.length) {
-    url.searchParams.set("countrycodes", options.countryCodes.join(","));
-  }
-
-  const headers: Record<string, string> = {
-    "User-Agent": getGeocoderUserAgent(),
-    Accept: "application/json",
-  };
-  if (options.acceptLanguage) headers["Accept-Language"] = options.acceptLanguage;
-
   const results = await schedule(async () => {
-    let response: Response;
     try {
-      response = await fetch(url, {
-        headers,
-        signal: options.signal,
-        cache: "no-store",
-      });
+      const primary = await searchNominatim(q, limit, options);
+      if (primary.length > 0) return primary;
+    } catch (error) {
+      if (
+        options.signal?.aborted ||
+        (error instanceof Error && error.name === "AbortError")
+      ) {
+        throw error;
+      }
+      // Fall through to Photon.
+    }
+
+    try {
+      return await searchPhoton(q, limit, options.signal);
     } catch (error) {
       if (
         options.signal?.aborted ||
@@ -150,35 +255,17 @@ export async function searchPlaces(
         throw error;
       }
       throw new NominatimError(
-        `Geocoding request failed: ${error instanceof Error ? error.message : "network error"}`,
+        error instanceof Error
+          ? error.message
+          : "Place search is temporarily unavailable.",
       );
-    }
-
-    if (response.status === 429 || response.status === 403) {
-      const retryAfter = Number(response.headers.get("retry-after"));
-      const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60;
-      blockedUntil = Date.now() + seconds * 1000;
-      throw new NominatimError(
-        "Geocoding is rate limited by the provider. Please try again shortly.",
-        response.status,
-        seconds,
-      );
-    }
-    if (!response.ok) {
-      throw new NominatimError(
-        `Geocoding provider responded with status ${response.status}.`,
-        response.status,
-      );
-    }
-
-    try {
-      return parseResults(await response.json());
-    } catch {
-      throw new NominatimError("Geocoding provider returned invalid JSON.");
     }
   }, options.signal);
 
-  resultCache.set(cacheKey, { results, expiresAt: Date.now() + RESULT_CACHE_TTL_MS });
+  resultCache.set(cacheKey, {
+    results,
+    expiresAt: Date.now() + RESULT_CACHE_TTL_MS,
+  });
   while (resultCache.size > RESULT_CACHE_MAX) {
     const oldest = resultCache.keys().next().value;
     if (oldest === undefined) break;

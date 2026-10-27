@@ -1,4 +1,4 @@
-import { getOverpassUrl } from "@/lib/env";
+import { getGeocoderUserAgent, getOverpassUrl } from "@/lib/env";
 import { dedupePlaces } from "@/lib/poi/dedupe";
 import type {
   OsmElementType,
@@ -73,13 +73,14 @@ export function buildOverpassQuery(params: FetchPoisParams): string {
     }
   }
 
-  const safeLimit = Math.max(1, Math.floor(limit));
+  // `out center N` is valid; `out center tags N` is rejected by some mirrors (HTTP 406).
+  const safeLimit = Math.max(1, Math.min(300, Math.floor(limit)));
   return [
     `[out:json][timeout:${timeout}];`,
     "(",
     ...statements,
     ");",
-    `out center tags ${safeLimit};`,
+    `out center ${safeLimit};`,
   ].join("\n");
 }
 
@@ -154,6 +155,34 @@ function isAbort(error: unknown, signal?: AbortSignal): boolean {
   return Boolean(signal?.aborted) || (error instanceof Error && error.name === "AbortError");
 }
 
+function overpassEndpoints(): string[] {
+  const primary = getOverpassUrl();
+  const mirrors = [
+    primary,
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+  ];
+  return [...new Set(mirrors)];
+}
+
+async function postOverpassQuery(
+  endpoint: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  // Prefer raw QL body — form-urlencoded + Accept: application/json can 406 on some mirrors.
+  return fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      "User-Agent": getGeocoderUserAgent(),
+    },
+    body: `data=${encodeURIComponent(query)}`,
+    signal,
+    cache: "no-store",
+  });
+}
+
 export async function fetchPoisFromOverpass(
   params: FetchPoisParams,
 ): Promise<PoiPlace[]> {
@@ -165,52 +194,60 @@ export async function fetchPoisFromOverpass(
   }
 
   const query = buildOverpassQuery(params);
+  let lastError: OverpassError | null = null;
 
-  let response: Response;
-  try {
-    response = await fetch(getOverpassUrl(), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-      },
-      body: new URLSearchParams({ data: query }).toString(),
-      signal,
-      cache: "no-store",
-    });
-  } catch (error) {
-    if (isAbort(error, signal)) throw error;
-    throw new OverpassError(
-      `Overpass request failed: ${error instanceof Error ? error.message : "network error"}`,
-    );
+  for (const endpoint of overpassEndpoints()) {
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("Aborted", "AbortError");
+    }
+
+    let response: Response;
+    try {
+      response = await postOverpassQuery(endpoint, query, signal);
+    } catch (error) {
+      if (isAbort(error, signal)) throw error;
+      lastError = new OverpassError(
+        `Overpass request failed: ${error instanceof Error ? error.message : "network error"}`,
+      );
+      continue;
+    }
+
+    if (!response.ok) {
+      lastError = new OverpassError(
+        response.status === 429
+          ? "Overpass is rate limiting requests. Try again shortly."
+          : `Overpass responded with status ${response.status}.`,
+        response.status,
+      );
+      // Try the next mirror on client / server errors that often mean a bad mirror.
+      if ([406, 504, 502, 429, 403].includes(response.status)) continue;
+      throw lastError;
+    }
+
+    let json: { elements?: OverpassElement[]; remark?: string };
+    try {
+      json = (await response.json()) as typeof json;
+    } catch (error) {
+      if (isAbort(error, signal)) throw error;
+      lastError = new OverpassError("Overpass returned an invalid JSON response.");
+      continue;
+    }
+
+    const elements = Array.isArray(json.elements) ? json.elements : [];
+    if (
+      json.remark &&
+      /error|timed out|out of memory/i.test(json.remark) &&
+      elements.length === 0
+    ) {
+      lastError = new OverpassError(`Overpass query failed: ${json.remark}`);
+      continue;
+    }
+
+    return parseOverpassElements(elements, categories);
   }
 
-  if (!response.ok) {
-    throw new OverpassError(
-      response.status === 429
-        ? "Overpass is rate limiting requests. Try again shortly."
-        : `Overpass responded with status ${response.status}.`,
-      response.status,
-    );
-  }
-
-  let json: { elements?: OverpassElement[]; remark?: string };
-  try {
-    json = (await response.json()) as typeof json;
-  } catch (error) {
-    if (isAbort(error, signal)) throw error;
-    throw new OverpassError("Overpass returned an invalid JSON response.");
-  }
-
-  const elements = Array.isArray(json.elements) ? json.elements : [];
-  // Overpass reports query timeouts as HTTP 200 with a remark and no data.
-  if (
-    json.remark &&
-    /error|timed out|out of memory/i.test(json.remark) &&
-    elements.length === 0
-  ) {
-    throw new OverpassError(`Overpass query failed: ${json.remark}`);
-  }
-
-  return parseOverpassElements(elements, categories);
+  throw (
+    lastError ??
+    new OverpassError("Overpass request failed on all configured endpoints.")
+  );
 }

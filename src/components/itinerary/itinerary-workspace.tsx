@@ -4,6 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  CalendarDays,
+  Clock3,
+  List,
   Loader2,
   Route,
   Sparkles,
@@ -28,6 +31,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DEMO_TRIP_ID } from "@/lib/demo-config";
+import {
+  formatCardDate,
+  formatCardTime,
+  formatDayHeading,
+  groupItemsByDay,
+  sortedDayKeys,
+  toDatetimeLocalValue,
+} from "@/lib/itinerary-time";
 import type { PoiPlace } from "@/lib/poi/types";
 import type { ItineraryItem, Profile, Trip, TripMember } from "@/types/database";
 import { TransportSegmentList } from "@/components/itinerary/transport-segments";
@@ -61,6 +73,7 @@ export function ItineraryWorkspace({
   currentUserId: string;
 }) {
   const canEdit = role === "owner" || role === "editor";
+  const isDemoTrip = trip.id === DEMO_TRIP_ID;
   const [items, setItems] = useState(initialItems);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -71,8 +84,10 @@ export function ItineraryWorkspace({
   const [dateError, setDateError] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [searchResults, setSearchResults] = useState<
-    { display_name: string; lat: string; lon: string; name?: string }[]
+    { display_name: string; lat: number | string; lon: number | string; name?: string }[]
   >([]);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedItinerary | null>(null);
   const [suggestError, setSuggestError] = useState<string | null>(null);
@@ -81,10 +96,26 @@ export function ItineraryWorkspace({
   const [routes, setRoutes] = useState<MapRouteSegment[]>([]);
   const [routing, setRouting] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"all" | "days">("days");
+  const [selectedDay, setSelectedDay] = useState<string>("all");
+
+  const sorted = useMemo(
+    () => [...items].sort((a, b) => a.sort_order - b.sort_order),
+    [items],
+  );
+
+  const dayGroups = useMemo(() => groupItemsByDay(sorted), [sorted]);
+  const dayKeys = useMemo(() => sortedDayKeys(dayGroups), [dayGroups]);
+
+  const visibleItems = useMemo(() => {
+    if (viewMode === "all") return sorted;
+    if (selectedDay === "all") return sorted;
+    return dayGroups.get(selectedDay) ?? [];
+  }, [viewMode, selectedDay, sorted, dayGroups]);
 
   const pins = useMemo(
     () =>
-      items
+      visibleItems
         .filter((i) => i.latitude != null && i.longitude != null)
         .map((i) => ({
           id: i.id,
@@ -93,7 +124,7 @@ export function ItineraryWorkspace({
           title: i.title,
           subtitle: i.address,
         })),
-    [items],
+    [visibleItems],
   );
 
   async function saveTripDetails() {
@@ -102,6 +133,7 @@ export function ItineraryWorkspace({
       return;
     }
     setDateError(null);
+    if (isDemoTrip) return;
     setSaving(true);
     try {
       await updateTripAction({
@@ -116,38 +148,133 @@ export function ItineraryWorkspace({
     }
   }
 
+  function createLocalItem(
+    partial: Partial<ItineraryItem> & { title: string },
+  ): ItineraryItem {
+    const now = new Date().toISOString();
+    const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), 0);
+    return {
+      id: crypto.randomUUID(),
+      trip_id: trip.id,
+      created_by: currentUserId,
+      item_type: partial.item_type ?? "place",
+      title: partial.title,
+      description: partial.description ?? null,
+      location_name: partial.location_name ?? partial.title,
+      address: partial.address ?? null,
+      latitude: partial.latitude ?? null,
+      longitude: partial.longitude ?? null,
+      start_at: partial.start_at ?? null,
+      end_at: partial.end_at ?? null,
+      timezone: partial.timezone ?? trip.timezone,
+      sort_order: partial.sort_order ?? maxOrder + 1,
+      booking_reference: partial.booking_reference ?? null,
+      source_url: partial.source_url ?? null,
+      thumbnail_url: partial.thumbnail_url ?? null,
+      details: partial.details ?? {},
+      osm_id: partial.osm_id ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+  }
+
   async function searchPlaces() {
-    const res = await fetch(`/api/geo/search?q=${encodeURIComponent(searchQ)}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    setSearchResults(data.results ?? []);
+    const q = searchQ.trim();
+    if (q.length < 2) {
+      setSearchError("Enter at least 2 characters.");
+      return;
+    }
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const res = await fetch(`/api/geo/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Search failed");
+      const results = data.results ?? [];
+      setSearchResults(results);
+      if (results.length === 0) {
+        setSearchError("No places found. Try a more specific name.");
+      }
+    } catch (e) {
+      setSearchResults([]);
+      setSearchError((e as Error).message || "Search failed");
+    } finally {
+      setSearching(false);
+    }
   }
 
   async function addPlaceFromSearch(r: {
     display_name: string;
-    lat: string;
-    lon: string;
+    lat: number | string;
+    lon: number | string;
     name?: string;
   }) {
     if (!canEdit) return;
-    const result = await addItineraryItemAction({
-      tripId: trip.id,
-      title: r.name || r.display_name.split(",")[0],
-      item_type: "place",
-      location_name: r.name || r.display_name.split(",")[0],
-      address: r.display_name,
-      latitude: Number(r.lat),
-      longitude: Number(r.lon),
-    });
-    if (result.item && "title" in result.item) {
-      setItems((prev) => [...prev, result.item as ItineraryItem]);
+    const title = r.name || r.display_name.split(",")[0];
+    const latitude = Number(r.lat);
+    const longitude = Number(r.lon);
+
+    if (isDemoTrip) {
+      setItems((prev) => [
+        ...prev,
+        createLocalItem({
+          title,
+          location_name: title,
+          address: r.display_name,
+          latitude,
+          longitude,
+          details: { source: "search", preview: true },
+        }),
+      ]);
+      setSearchResults([]);
+      setSearchQ("");
+      setSearchError(null);
+      return;
     }
-    setSearchResults([]);
-    setSearchQ("");
+
+    try {
+      const result = await addItineraryItemAction({
+        tripId: trip.id,
+        title,
+        item_type: "place",
+        location_name: title,
+        address: r.display_name,
+        latitude,
+        longitude,
+      });
+      if (result.item && "title" in result.item) {
+        setItems((prev) => [...prev, result.item as ItineraryItem]);
+      }
+      setSearchResults([]);
+      setSearchQ("");
+      setSearchError(null);
+    } catch (e) {
+      setSearchError((e as Error).message || "Could not add place");
+    }
   }
 
   async function addPoi(place: PoiPlace) {
     if (!canEdit) return;
+    if (isDemoTrip) {
+      setItems((prev) => {
+        if (prev.some((i) => i.osm_id === `${place.osmType}/${place.osmId}`)) {
+          return prev;
+        }
+        return [
+          ...prev,
+          createLocalItem({
+            title: place.name,
+            location_name: place.name,
+            address: place.address ?? null,
+            latitude: place.lat,
+            longitude: place.lon,
+            osm_id: `${place.osmType}/${place.osmId}`,
+            details: { category: place.category, source: "overpass", preview: true },
+          }),
+        ];
+      });
+      return;
+    }
     const result = await addItineraryItemAction({
       tripId: trip.id,
       title: place.name,
@@ -164,6 +291,28 @@ export function ItineraryWorkspace({
     }
   }
 
+  async function saveItemTimes(
+    itemId: string,
+    patch: { start_at?: string | null; end_at?: string | null },
+  ) {
+    if (isDemoTrip) {
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === itemId ? { ...item, ...patch, updated_at: new Date().toISOString() } : item,
+        ),
+      );
+      return;
+    }
+    const updated = await updateItineraryItemAction({
+      id: itemId,
+      tripId: trip.id,
+      ...patch,
+    });
+    setItems((prev) =>
+      prev.map((x) => (x.id === itemId ? updated.item : x)),
+    );
+  }
+
   async function moveItem(id: string, direction: -1 | 1) {
     if (!canEdit) return;
     const ordered = [...items].sort((a, b) => a.sort_order - b.sort_order);
@@ -171,16 +320,21 @@ export function ItineraryWorkspace({
     const swap = idx + direction;
     if (swap < 0 || swap >= ordered.length) return;
     [ordered[idx], ordered[swap]] = [ordered[swap], ordered[idx]];
-    setItems(ordered.map((item, i) => ({ ...item, sort_order: i + 1 })));
-    await reorderItineraryItemsAction(
-      trip.id,
-      ordered.map((i) => i.id),
-    );
+    const next = ordered.map((item, i) => ({ ...item, sort_order: i + 1 }));
+    setItems(next);
+    if (!isDemoTrip) {
+      await reorderItineraryItemsAction(
+        trip.id,
+        next.map((i) => i.id),
+      );
+    }
   }
 
   async function confirmDelete() {
     if (!deleteId || !canEdit) return;
-    await deleteItineraryItemAction(trip.id, deleteId);
+    if (!isDemoTrip) {
+      await deleteItineraryItemAction(trip.id, deleteId);
+    }
     setItems((prev) => prev.filter((i) => i.id !== deleteId));
     setDeleteId(null);
   }
@@ -275,23 +429,43 @@ export function ItineraryWorkspace({
   }
 
   async function acceptSuggestion(dayNumber: number, item: SuggestedItem) {
-    const result = await addItineraryItemAction({
-      tripId: trip.id,
-      title: item.title,
-      item_type: "place",
-      description: item.description ?? null,
-      location_name: item.locationName ?? item.title,
-      details: {
-        ai: true,
-        category: item.category,
-        suggestedDay: dayNumber,
-        startTime: item.startTime,
-        durationMinutes: item.durationMinutes,
-        note: "AI-generated recommendation — verify details before visiting.",
-      },
-    });
-    if (result.item && "title" in result.item) {
-      setItems((prev) => [...prev, result.item as ItineraryItem]);
+    if (isDemoTrip) {
+      setItems((prev) => [
+        ...prev,
+        createLocalItem({
+          title: item.title,
+          description: item.description ?? null,
+          location_name: item.locationName ?? item.title,
+          details: {
+            ai: true,
+            category: item.category,
+            suggestedDay: dayNumber,
+            startTime: item.startTime,
+            durationMinutes: item.durationMinutes,
+            note: "AI-generated recommendation — verify details before visiting.",
+            preview: true,
+          },
+        }),
+      ]);
+    } else {
+      const result = await addItineraryItemAction({
+        tripId: trip.id,
+        title: item.title,
+        item_type: "place",
+        description: item.description ?? null,
+        location_name: item.locationName ?? item.title,
+        details: {
+          ai: true,
+          category: item.category,
+          suggestedDay: dayNumber,
+          startTime: item.startTime,
+          durationMinutes: item.durationMinutes,
+          note: "AI-generated recommendation — verify details before visiting.",
+        },
+      });
+      if (result.item && "title" in result.item) {
+        setItems((prev) => [...prev, result.item as ItineraryItem]);
+      }
     }
     setSuggestions((prev) => {
       if (!prev) return prev;
@@ -305,8 +479,6 @@ export function ItineraryWorkspace({
       };
     });
   }
-
-  const sorted = [...items].sort((a, b) => a.sort_order - b.sort_order);
 
   return (
     <div className="space-y-4">
@@ -335,7 +507,10 @@ export function ItineraryWorkspace({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="start">Start date</Label>
+            <Label htmlFor="start" className="inline-flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5 text-brand" />
+              Trip starts
+            </Label>
             <Input
               id="start"
               type="date"
@@ -346,7 +521,10 @@ export function ItineraryWorkspace({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="end">End date</Label>
+            <Label htmlFor="end" className="inline-flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5 text-brand" />
+              Trip ends
+            </Label>
             <Input
               id="end"
               type="date"
@@ -495,23 +673,42 @@ export function ItineraryWorkspace({
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[42%_1fr]">
-        <section className="space-y-3">
+      <div className="grid gap-4 lg:grid-cols-[42%_1fr] lg:items-start">
+        <section className="order-2 space-y-3 lg:order-1">
+          <div className="rounded-[12px] border border-border bg-card p-3">
+            <h2 className="text-base font-semibold">Your itinerary</h2>
+            <p className="mt-0.5 text-xs text-muted">
+              Stops for this trip live here — add places, set times, and switch between day and list views.
+            </p>
+          </div>
           {canEdit ? (
             <div className="rounded-[12px] border border-border bg-card p-3">
               <Label htmlFor="place-search">Add a place</Label>
+              <p className="mt-0.5 text-xs text-muted">
+                Search for a real place, then click a result to add it to this trip.
+              </p>
               <div className="mt-1.5 flex gap-2">
                 <Input
                   id="place-search"
                   value={searchQ}
                   placeholder="Eiffel Tower, Paris"
-                  onChange={(e) => setSearchQ(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQ(e.target.value);
+                    setSearchError(null);
+                  }}
                   onKeyDown={(e) => e.key === "Enter" && void searchPlaces()}
                 />
-                <Button type="button" onClick={() => void searchPlaces()}>
-                  Search
+                <Button
+                  type="button"
+                  disabled={searching}
+                  onClick={() => void searchPlaces()}
+                >
+                  {searching ? "…" : "Search"}
                 </Button>
               </div>
+              {searchError ? (
+                <p className="mt-2 text-sm text-destructive">{searchError}</p>
+              ) : null}
               {searchResults.length > 0 ? (
                 <ul className="mt-2 max-h-40 overflow-auto rounded-[8px] border border-border">
                   {searchResults.map((r) => (
@@ -530,175 +727,137 @@ export function ItineraryWorkspace({
             </div>
           ) : null}
 
+          <div className="rounded-[12px] border border-border bg-card p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="mr-auto text-sm font-semibold">Itinerary view</p>
+              <Button
+                size="sm"
+                variant={viewMode === "all" ? "default" : "secondary"}
+                onClick={() => {
+                  setViewMode("all");
+                  setSelectedDay("all");
+                }}
+              >
+                <List className="h-3.5 w-3.5" />
+                All stops
+              </Button>
+              <Button
+                size="sm"
+                variant={viewMode === "days" ? "default" : "secondary"}
+                onClick={() => setViewMode("days")}
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+                By day
+              </Button>
+            </div>
+            {viewMode === "days" ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDay("all")}
+                  className={`rounded-[8px] border px-2.5 py-1 text-xs font-medium ${
+                    selectedDay === "all"
+                      ? "border-brand bg-brand text-white"
+                      : "border-border bg-white text-muted"
+                  }`}
+                >
+                  All days
+                </button>
+                {dayKeys.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedDay(key)}
+                    className={`rounded-[8px] border px-2.5 py-1 text-xs font-medium ${
+                      selectedDay === key
+                        ? "border-brand bg-brand text-white"
+                        : "border-border bg-white text-muted"
+                    }`}
+                  >
+                    {key === "unscheduled"
+                      ? "Unscheduled"
+                      : formatCardDate(`${key}T12:00:00`)}
+                    <span className="ml-1 opacity-70">
+                      ({dayGroups.get(key)?.length ?? 0})
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           {sorted.length === 0 ? (
             <div className="rounded-[12px] border border-dashed border-border bg-card p-8 text-center">
               <h2 className="font-semibold">Itinerary is empty</h2>
               <p className="mt-1 text-sm text-muted">
-                Search for places or explore the map to add stops.
+                Use Add a place above, or tap a map pin, to add stops.
               </p>
             </div>
-          ) : (
-            <ol className="relative space-y-3 border-l-2 border-brand-light pl-4">
-              {sorted.map((item, index) => (
-                <li key={item.id} className="relative">
-                  <span className="absolute -left-[1.4rem] top-4 h-3 w-3 rounded-full border-2 border-white bg-brand" />
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(item.id)}
-                    className={`w-full rounded-[12px] border bg-card p-3 text-left shadow-sm transition-colors duration-150 ${
-                      selectedId === item.id
-                        ? "border-brand bg-brand-light"
-                        : "border-border"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      {item.thumbnail_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={item.thumbnail_url}
-                          alt=""
-                          className="h-14 w-14 rounded-[8px] object-cover"
-                        />
-                      ) : null}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-semibold">{item.title}</p>
-                          <Badge className="capitalize">
-                            {item.item_type.replace("_", " ")}
-                          </Badge>
-                        </div>
-                        {item.address ? (
-                          <p className="mt-0.5 text-xs text-muted">{item.address}</p>
-                        ) : null}
-                        {(item.start_at || item.end_at) && (
-                          <p className="mt-1 text-xs text-muted">
-                            {item.start_at
-                              ? new Date(item.start_at).toLocaleString()
-                              : ""}
-                            {item.end_at
-                              ? ` – ${new Date(item.end_at).toLocaleString()}`
-                              : ""}
-                          </p>
-                        )}
-                        {item.booking_reference ? (
-                          <p className="mt-1 text-xs text-muted">
-                            Ref: {item.booking_reference}
-                          </p>
-                        ) : null}
-                        {item.source_url ? (
-                          <a
-                            href={item.source_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 inline-block text-xs font-medium text-brand"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            View reservation
-                          </a>
-                        ) : null}
-                      </div>
-                      {canEdit ? (
-                        <div className="flex flex-col gap-1">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void moveItem(item.id, -1);
-                            }}
-                            disabled={index === 0 || pending}
-                          >
-                            <ArrowUp className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void moveItem(item.id, 1);
-                            }}
-                            disabled={index === sorted.length - 1 || pending}
-                          >
-                            <ArrowDown className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteId(item.id);
-                            }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-                    {canEdit ? (
-                      <div
-                        className="mt-2 grid gap-2 sm:grid-cols-2"
-                        onClick={(e) => e.stopPropagation()}
+          ) : viewMode === "days" && selectedDay === "all" ? (
+            <div className="space-y-5">
+              {dayKeys.map((dayKey) => {
+                const dayItems = dayGroups.get(dayKey) ?? [];
+                return (
+                  <div key={dayKey} className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-bold text-foreground">
+                        {formatDayHeading(dayKey)}
+                      </h3>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-brand"
+                        onClick={() => setSelectedDay(dayKey)}
                       >
-                        <Input
-                          type="datetime-local"
-                          defaultValue={
-                            item.start_at
-                              ? new Date(item.start_at).toISOString().slice(0, 16)
-                              : ""
+                        Focus day
+                      </button>
+                    </div>
+                    <ol className="space-y-2">
+                      {dayItems.map((item, index) => (
+                        <ItineraryCard
+                          key={item.id}
+                          item={item}
+                          selected={selectedId === item.id}
+                          canEdit={canEdit}
+                          pending={pending}
+                          isFirst={index === 0}
+                          isLast={index === dayItems.length - 1}
+                          onSelect={() => setSelectedId(item.id)}
+                          onMoveUp={() => void moveItem(item.id, -1)}
+                          onMoveDown={() => void moveItem(item.id, 1)}
+                          onDelete={() => setDeleteId(item.id)}
+                          onSaveTimes={(patch) =>
+                            startTransition(() => saveItemTimes(item.id, patch))
                           }
-                          onBlur={(e) => {
-                            const value = e.target.value
-                              ? new Date(e.target.value).toISOString()
-                              : null;
-                            startTransition(async () => {
-                              const updated = await updateItineraryItemAction({
-                                id: item.id,
-                                tripId: trip.id,
-                                start_at: value,
-                              });
-                              setItems((prev) =>
-                                prev.map((x) =>
-                                  x.id === item.id ? updated.item : x,
-                                ),
-                              );
-                            });
-                          }}
                         />
-                        <Input
-                          type="datetime-local"
-                          defaultValue={
-                            item.end_at
-                              ? new Date(item.end_at).toISOString().slice(0, 16)
-                              : ""
-                          }
-                          onBlur={(e) => {
-                            const value = e.target.value
-                              ? new Date(e.target.value).toISOString()
-                              : null;
-                            startTransition(async () => {
-                              const updated = await updateItineraryItemAction({
-                                id: item.id,
-                                tripId: trip.id,
-                                end_at: value,
-                              });
-                              setItems((prev) =>
-                                prev.map((x) =>
-                                  x.id === item.id ? updated.item : x,
-                                ),
-                              );
-                            });
-                          }}
-                        />
-                      </div>
-                    ) : null}
-                  </button>
-                  {index < sorted.length - 1 ? (
+                      ))}
+                    </ol>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <ol className="space-y-2">
+              {visibleItems.map((item, index) => (
+                <li key={item.id}>
+                  <ItineraryCard
+                    item={item}
+                    selected={selectedId === item.id}
+                    canEdit={canEdit}
+                    pending={pending}
+                    isFirst={index === 0}
+                    isLast={index === visibleItems.length - 1}
+                    onSelect={() => setSelectedId(item.id)}
+                    onMoveUp={() => void moveItem(item.id, -1)}
+                    onMoveDown={() => void moveItem(item.id, 1)}
+                    onDelete={() => setDeleteId(item.id)}
+                    onSaveTimes={(patch) =>
+                      startTransition(() => saveItemTimes(item.id, patch))
+                    }
+                  />
+                  {index < visibleItems.length - 1 ? (
                     <TransportSegmentList
-                      from={sorted[index]}
-                      to={sorted[index + 1]}
+                      from={visibleItems[index]}
+                      to={visibleItems[index + 1]}
                       tripId={trip.id}
                       canEdit={canEdit}
                     />
@@ -709,17 +868,23 @@ export function ItineraryWorkspace({
           )}
         </section>
 
-        <section className="min-h-[360px] lg:min-h-[calc(100vh-14rem)]">
-          <WaypointMap
-            pins={pins}
-            selectedPinId={selectedId}
-            onSelectPin={setSelectedId}
-            tripId={trip.id}
-            onAddPoi={canEdit ? addPoi : undefined}
-            enablePoi
-            routes={routes}
-            height="100%"
-          />
+        <section className="order-1 min-h-[40vh] lg:order-2 lg:sticky lg:top-20 lg:min-h-[calc(100vh-8rem)]">
+          <p className="mb-2 text-sm font-semibold text-foreground">Trip map</p>
+          <p className="mb-2 text-xs text-muted">
+            Pins and routes for the stops in your current view. Scroll down for the itinerary list.
+          </p>
+          <div className="h-[42vh] min-h-[280px] lg:h-[calc(100vh-10rem)]">
+            <WaypointMap
+              pins={pins}
+              selectedPinId={selectedId}
+              onSelectPin={setSelectedId}
+              tripId={trip.id}
+              onAddPoi={canEdit ? addPoi : undefined}
+              enablePoi
+              routes={routes}
+              height="100%"
+            />
+          </div>
         </section>
       </div>
 
@@ -741,6 +906,148 @@ export function ItineraryWorkspace({
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function ItineraryCard({
+  item,
+  selected,
+  canEdit,
+  pending,
+  isFirst,
+  isLast,
+  onSelect,
+  onMoveUp,
+  onMoveDown,
+  onDelete,
+  onSaveTimes,
+}: {
+  item: ItineraryItem;
+  selected: boolean;
+  canEdit: boolean;
+  pending: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  onSelect: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onDelete: () => void;
+  onSaveTimes: (patch: {
+    start_at?: string | null;
+    end_at?: string | null;
+  }) => void;
+}) {
+  return (
+    <div
+      className={`rounded-[12px] border bg-card shadow-sm transition-colors duration-150 ${
+        selected ? "border-brand bg-brand-light" : "border-border"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex w-full items-stretch gap-0 text-left"
+      >
+        <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center border-r border-border bg-[var(--page-bg)] px-2 py-3">
+          <Clock3 className="mb-1 h-3.5 w-3.5 text-brand" />
+          <span className="text-sm font-bold leading-tight text-foreground">
+            {formatCardTime(item.start_at)}
+          </span>
+          {item.start_at ? (
+            <span className="mt-0.5 text-[10px] font-medium text-muted">
+              {formatCardDate(item.start_at)}
+            </span>
+          ) : (
+            <span className="mt-0.5 text-[10px] text-muted">Set time</span>
+          )}
+          {item.end_at ? (
+            <span className="mt-1 text-[10px] text-muted">
+              → {formatCardTime(item.end_at)}
+            </span>
+          ) : null}
+        </div>
+        <div className="min-w-0 flex-1 p-3">
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-semibold">{item.title}</p>
+                <Badge className="capitalize">
+                  {item.item_type.replace("_", " ")}
+                </Badge>
+              </div>
+              {item.address ? (
+                <p className="mt-0.5 text-xs text-muted">{item.address}</p>
+              ) : null}
+              {item.booking_reference ? (
+                <p className="mt-1 text-xs text-muted">
+                  Ref: {item.booking_reference}
+                </p>
+              ) : null}
+            </div>
+            {canEdit ? (
+              <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={onMoveUp}
+                  disabled={isFirst || pending}
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={onMoveDown}
+                  disabled={isLast || pending}
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 text-destructive"
+                  onClick={onDelete}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </button>
+      {canEdit ? (
+        <div className="grid gap-2 border-t border-border p-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted">Starts</Label>
+            <Input
+              type="datetime-local"
+              defaultValue={toDatetimeLocalValue(item.start_at)}
+              onBlur={(e) => {
+                const value = e.target.value
+                  ? new Date(e.target.value).toISOString()
+                  : null;
+                onSaveTimes({ start_at: value });
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted">Ends</Label>
+            <Input
+              type="datetime-local"
+              defaultValue={toDatetimeLocalValue(item.end_at)}
+              onBlur={(e) => {
+                const value = e.target.value
+                  ? new Date(e.target.value).toISOString()
+                  : null;
+                onSaveTimes({ end_at: value });
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
