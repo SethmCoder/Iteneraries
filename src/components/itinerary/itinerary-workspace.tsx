@@ -9,6 +9,7 @@ import {
   CalendarDays,
   List,
   Loader2,
+  Building2,
   Plane,
   Route,
   Sparkles,
@@ -566,7 +567,13 @@ export function ItineraryWorkspace({
           <Button variant="secondary" asChild>
             <Link href={`/flights?tripId=${trip.id}`}>
               <Plane className="h-4 w-4" />
-              Flight Booker
+              Flights Pending
+            </Link>
+          </Button>
+          <Button variant="secondary" asChild>
+            <Link href={`/hotels?tripId=${trip.id}`}>
+              <Building2 className="h-4 w-4" />
+              Hotels Pending
             </Link>
           </Button>
           <Button

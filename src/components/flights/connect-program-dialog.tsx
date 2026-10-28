@@ -64,16 +64,16 @@ export function ConnectProgramDialog({
             {mode === "sync" ? "Sync" : "Connect"} {label}
           </DialogTitle>
           <DialogDescription>
-            Enter your airline loyalty login. Credentials are sent once to our
-            balance provider and are never stored in Waypoint.
+            Paid AwardWallet Web Parsing only. Prefer free AwardWallet OAuth or
+            manual balances. Credentials are relayed once and never stored.
           </DialogDescription>
         </DialogHeader>
 
         {!webParseConfigured ? (
-          <p className="text-sm text-warning">
-            Set <code>AWARDWALLET_WEB_USER</code> and{" "}
-            <code>AWARDWALLET_WEB_PASSWORD</code> to enable in-app program
-            linking.
+          <p className="text-sm text-muted">
+            This optional paid API is not configured. Use{" "}
+            <strong>Connect AwardWallet (free)</strong> or enter a balance
+            manually instead.
           </p>
         ) : (
           <div className="space-y-3">

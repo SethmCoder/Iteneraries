@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Menu, Plane, Users, X } from "lucide-react";
+import { Bell, Building2, Menu, Plane, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppLogo } from "@/components/brand/app-logo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -222,7 +222,11 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/flights")}>
                 <Plane className="mr-2 h-4 w-4" />
-                Flight Booker
+                Flights Pending
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/hotels")}>
+                <Building2 className="mr-2 h-4 w-4" />
+                Hotels Pending
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/settings")}>
                 Settings
@@ -273,7 +277,14 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
               className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
               onClick={() => setMobileOpen(false)}
             >
-              Flight Booker
+              Flights Pending
+            </Link>
+            <Link
+              href="/hotels"
+              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => setMobileOpen(false)}
+            >
+              Hotels Pending
             </Link>
             <Link
               href="/settings"

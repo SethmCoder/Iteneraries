@@ -420,8 +420,7 @@ export function SettingsWorkspace({
         <h2 className="font-semibold">Award monitoring</h2>
         <p className="mt-1 text-sm text-muted">
           We look for award seats in this window so alerts arrive when you can
-          book. Outside the window, monitoring waits. Opening Flight Booker
-          during the window also runs due checks.
+          book. Outside the window, monitoring waits.
         </p>
         <div className="mt-4 space-y-3">
           <label className="flex items-center gap-2 text-sm">

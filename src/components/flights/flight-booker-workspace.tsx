@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/dialog";
 import { LOYALTY_PROGRAMS } from "@/lib/flights/loyalty-programs";
 import { awardSearchFormSchema } from "@/lib/flights/schema";
+import { seatsAeroSearchUrl } from "@/lib/flights/seats-aero-links";
 import type {
   AwardResult,
   AwardSearch,
@@ -370,7 +371,7 @@ export function FlightBookerWorkspace({
       setActionMessage(
         awardConfigured
           ? "Search saved (preview)."
-          : "Search saved. Live award inventory requires SEATS_AERO_API_KEY.",
+          : "Search saved. Live API polling is optional (paid); use Check on seats.aero for free.",
       );
       return;
     }
@@ -381,7 +382,7 @@ export function FlightBookerWorkspace({
         setActionMessage(
           awardConfigured
             ? "Search saved. Monitoring will run on the schedule."
-            : "Search saved with Setup Required — add SEATS_AERO_API_KEY for live awards.",
+            : "Search saved as Setup Required (no paid award API). Check seats.aero manually.",
         );
         setForm(emptyForm(tripId));
         setSearches((prev) => {
@@ -459,7 +460,7 @@ export function FlightBookerWorkspace({
       setActionMessage(
         awardConfigured
           ? "Manual search queued (preview)."
-          : "Live search unavailable until SEATS_AERO_API_KEY is set.",
+          : "No paid award API — open Check on seats.aero for free inventory lookup.",
       );
       return;
     }
@@ -508,17 +509,24 @@ export function FlightBookerWorkspace({
             program site after you confirm.
           </p>
         </div>
-        <Badge className={awardConfigured ? "" : "border-amber-200 bg-amber-50 text-amber-800"}>
-          {awardConfigured ? "Seats.aero connected" : "Award API not configured"}
+        <Badge className={awardConfigured ? "" : "border-border bg-[var(--page-bg)] text-muted"}>
+          {awardConfigured ? "Live award API on" : "Free mode — no paid award API"}
         </Badge>
       </div>
 
       {!awardConfigured ? (
-        <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Live award inventory needs <code className="rounded bg-white/80 px-1">SEATS_AERO_API_KEY</code>.
-          You can still create, edit, pause, and delete searches; status stays{" "}
-          <strong>Setup Required</strong> until a key is added. Ordinary cash flight
-          APIs are never shown as award seats.
+        <div className="rounded-[12px] border border-border bg-card px-4 py-3 text-sm text-muted">
+          Live API polling is optional and paid (Seats.aero Pro). Without it you can
+          still save searches, track balances, and open the free{" "}
+          <a
+            className="font-medium text-brand underline"
+            href="https://seats.aero"
+            target="_blank"
+            rel="noreferrer"
+          >
+            seats.aero
+          </a>{" "}
+          site from each search. Waypoint never invents award inventory.
         </div>
       ) : null}
 
@@ -923,22 +931,10 @@ export function FlightBookerWorkspace({
           <div className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
             <h2 className="font-semibold">Loyalty balances</h2>
             <p className="mt-0.5 text-xs text-muted">
-              Connect a program directly (e.g. KrisFlyer) or sync AwardWallet.
-              Waypoint does not store airline passwords. Manual entry remains a
-              fallback. Award checks run in your Settings booking window.
+              Free path: enter balances manually, or connect AwardWallet OAuth (free
+              Account Access API). Waypoint never stores airline passwords.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                disabled={pending || isDemo}
-                onClick={() => {
-                  setConnectMode("link");
-                  setConnectProgram(loyaltyProgram);
-                  setConnectOpen(true);
-                }}
-              >
-                Connect program
-              </Button>
               {loyaltyLinkConfigured ? (
                 loyaltyConnection?.status === "connected" ? (
                   <>
@@ -984,23 +980,31 @@ export function FlightBookerWorkspace({
                     </span>
                   </>
                 ) : (
-                  <Button type="button" variant="secondary" asChild>
+                  <Button type="button" asChild>
                     <a href="/api/loyalty/awardwallet/connect">
-                      Connect AwardWallet
+                      Connect AwardWallet (free)
                     </a>
                   </Button>
                 )
               ) : (
                 <p className="w-full text-xs text-muted">
-                  Optional: set <code>AWARDWALLET_API_KEY</code> to sync an existing
-                  AwardWallet account.
+                  Optional free sync: set <code>AWARDWALLET_API_KEY</code> (Account
+                  Access API is free of charge).
                 </p>
               )}
-              {!webParseConfigured ? (
-                <p className="w-full text-xs text-warning">
-                  Set <code>AWARDWALLET_WEB_USER</code> /{" "}
-                  <code>AWARDWALLET_WEB_PASSWORD</code> to enable Connect program.
-                </p>
+              {webParseConfigured ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={pending || isDemo}
+                  onClick={() => {
+                    setConnectMode("link");
+                    setConnectProgram(loyaltyProgram);
+                    setConnectOpen(true);
+                  }}
+                >
+                  Connect program (paid API)
+                </Button>
               ) : null}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -1251,6 +1255,20 @@ export function FlightBookerWorkspace({
                         >
                           View
                         </Button>
+                        <Button size="sm" variant="secondary" asChild>
+                          <a
+                            href={seatsAeroSearchUrl({
+                              origin: s.origin,
+                              destination: s.destination,
+                              departDate: s.depart_date,
+                            })}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Check on seats.aero
+                            <ExternalLink className="ml-1 h-3.5 w-3.5" />
+                          </a>
+                        </Button>
                         <Button
                           size="sm"
                           variant="secondary"
@@ -1397,7 +1415,7 @@ export function FlightBookerWorkspace({
             {detailResults.length === 0 ? (
               <div className="rounded-[10px] border border-dashed border-border px-4 py-8 text-center text-sm text-muted">
                 {detailSearch?.status === "setup_required"
-                  ? "No live award data until SEATS_AERO_API_KEY is configured."
+                  ? "No live API results (optional paid key). Use Check on seats.aero."
                   : "No matching award options yet. Run a search or wait for monitoring."}
               </div>
             ) : (

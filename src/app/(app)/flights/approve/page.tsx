@@ -36,7 +36,7 @@ export default async function ApproveBookingPage({
     return (
       <ApproveShell
         title="Missing approve link"
-        body="This approve link is incomplete. Open the match from Flight Booker instead."
+        body="This approve link is incomplete. Open Flights Pending instead."
       />
     );
   }
@@ -89,7 +89,7 @@ export default async function ApproveBookingPage({
     return (
       <ApproveShell
         title="No longer available"
-        body="We couldn't find that award result anymore — it may have disappeared. Check Flight Booker for current options."
+        body="We couldn't find that award result anymore — it may have disappeared. Check Flights Pending for current options."
       />
     );
   }
@@ -98,7 +98,7 @@ export default async function ApproveBookingPage({
     return (
       <ApproveShell
         title="No booking link"
-        body="This match has no airline booking URL. Open Flight Booker to review alternatives."
+        body="This match has no airline booking URL. Open Flights Pending to review alternatives."
       />
     );
   }
@@ -121,7 +121,7 @@ function ApproveShell({ title, body }: { title: string; body: string }) {
         redeems miles for you.
       </p>
       <Button asChild>
-        <Link href="/flights">Open Flight Booker</Link>
+        <Link href="/flights">Open Flights Pending</Link>
       </Button>
     </div>
   );

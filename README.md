@@ -5,13 +5,13 @@ Waypoint is a business travel planning web application. Create trips, build chro
 ## Stack
 
 - Next.js App Router, React, TypeScript, Tailwind CSS
-- Supabase (Auth, Postgres + RLS, Storage, Realtime)
-- Leaflet + OpenStreetMap tiles
-- Overpass API for dynamic points of interest
-- Nominatim geocoding
-- OSRM routing (optional OpenTripPlanner for transit)
-- OpenAI-compatible API for suggestions and email extraction
-- Resend inbound email webhooks
+- Supabase (Auth, Postgres + RLS, Storage, Realtime) — **free tier**
+- Leaflet + OpenStreetMap tiles (free)
+- Overpass / Nominatim / FOSSGIS OSRM (free public endpoints; no keys)
+- Resend — **free tier** for outbound/inbound email
+- AwardWallet Account Access API — **free** for OAuth balance sync
+- OpenAI-compatible AI — use a **free** provider (e.g. Groq); paid OpenAI optional
+- Seats.aero Partner API — **optional paid**; not required to use the app
 
 ## Preview without Supabase
 
@@ -37,10 +37,12 @@ Then open `/login` and click **Enter preview**. You’ll get sample Paris trip d
 | Driving routes (OSRM public demo) | Works when network allows |
 | Walking/cycling routes | Defaults to FOSSGIS OSRM (`routing.openstreetmap.de`); override with `OSRM_WALKING_BASE_URL` / `OSRM_BICYCLE_BASE_URL` |
 | Public transit routing | Requires `TRANSIT_ROUTER_URL` (OpenTripPlanner + regional GTFS; no free global demo) |
-| AI Suggest Itinerary | Requires `OPENAI_API_KEY` |
-| Email import | Requires Resend inbound + webhook secret + AI key |
-| Flight Booker (award search UI) | Works; live inventory needs `SEATS_AERO_API_KEY` |
-| Award monitoring cron | Needs `SEATS_AERO_API_KEY` + `CRON_SECRET` on Vercel |
+| AI Suggest Itinerary | Optional free Groq (or other OpenAI-compatible) key |
+| Email import | Optional Resend Free + free AI key for extraction |
+| Flights / Hotels Pending | Works; OpenFlights airport + route data (free, bundled) |
+| Live award API polling | Optional legacy; not used by Pending UIs |
+| Live loyalty sync | Optional legacy AwardWallet OAuth |
+| Award monitoring cron | Optional; needs `CRON_SECRET` if enabled |
 
 ## Local setup
 
@@ -57,10 +59,9 @@ Open [http://localhost:3000](http://localhost:3000).
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. Copy **Project URL**, **anon key**, and **service role key** into `.env.local`.
-3. In the SQL editor, run the migration files in order:
+3. In the SQL editor, run the single migration:
 
    - [`supabase/migrations/20241027000000_initial_schema.sql`](supabase/migrations/20241027000000_initial_schema.sql)
-   - [`supabase/migrations/20261027150000_flight_booker.sql`](supabase/migrations/20261027150000_flight_booker.sql)
 
 4. Confirm Auth email settings (enable/disable email confirmation as desired).
 5. Storage bucket `avatars` and RLS policies are created by the initial migration.
@@ -75,22 +76,13 @@ npx supabase db push
 
 See [`.env.example`](.env.example) for the full list.
 
-Required for core app:
+**Required (free):** Supabase URL + anon + service role, `NEXT_PUBLIC_APP_URL`.
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY` (server-only; never expose to the browser)
+**Recommended free:** `CRON_SECRET`, Resend Free (`RESEND_*`), AwardWallet Account Access (`AWARDWALLET_API_KEY`), Groq (or similar) for AI.
 
-Optional integrations:
+**Optional paid (not required):** `SEATS_AERO_API_KEY`, AwardWallet Web Parsing (`AWARDWALLET_WEB_*`).
 
-- `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`
-- `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `INBOUND_EMAIL_ADDRESS`
-- `OVERPASS_API_URL`, `OSRM_BASE_URL`, `OSRM_WALKING_BASE_URL`, `OSRM_BICYCLE_BASE_URL`, `TRANSIT_ROUTER_URL`
-- `NOMINATIM_BASE_URL`, `GEOCODER_USER_AGENT`
-- `NEXT_PUBLIC_APP_URL`
-- `SEATS_AERO_API_KEY` (award inventory via Seats.aero Partner API)
-- `CRON_SECRET` (authorizes `/api/cron/*`)
-- `RESEND_FROM_EMAIL` (verified sender for password reset, social, flight, and renewal emails)
+See [`.env.example`](.env.example) for the full annotated list.
 
 ## Account access periods
 
@@ -98,16 +90,13 @@ New accounts get a **30-day** access period (`account_billing`). Users renew for
 
 The billing row is structured for a later paid plan (`plan`, `billing_provider`, Stripe id columns) without rewriting free renew.
 
-## Flight Booker (award seats)
+## Flights Pending & Hotels Pending
 
-Open **Flight Booker** from the avatar menu or the trip toolbar. Create award searches, link live loyalty balances, and review matches when provider keys are present.
+Open **Flights Pending** or **Hotels Pending** from the avatar menu or the trip toolbar (`?tripId=` preselects the trip).
 
-1. Obtain a Seats.aero Partner API key (Pro non-commercial or commercial agreement). Set `SEATS_AERO_API_KEY`.
-2. Set `CRON_SECRET` and deploy on Vercel so the daily cron in `vercel.json` can call `/api/cron/award-monitor` with `Authorization: Bearer $CRON_SECRET` (Hobby plans allow at most one run per day per cron).
-3. Optional live balances: create an [AwardWallet Business](https://awardwallet.com/api/account) account, set `AWARDWALLET_API_KEY`, and register redirect `https://<host>/api/loyalty/awardwallet/callback`. Users connect via OAuth (`read_balances`) — Waypoint never stores airline passwords.
-4. Without Seats.aero, searches save as **Setup Required** — Waypoint never invents award availability or presents cash fares as awards.
-5. Booking is a confirmed handoff to the airline / program site. Points are never redeemed by Waypoint.
-6. Each trip has a plus-addressed forward inbox (e.g. `planner+parisclientweek@yourdomain.com`) on the trip view when `INBOUND_EMAIL_ADDRESS` is set. Renaming the trip updates the slug.
+- Assign flights/hotels to a trip and set booking status (`needs_booking`, `in_progress`, `booked`, `skipped`).
+- Flights Pending searches airports and known airline routes via bundled [OpenFlights](https://openflights.org) data (`npm run build:openflights` to refresh).
+- No paid award or hotel APIs are required.
 
 ## Email import (Resend)
 

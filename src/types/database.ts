@@ -269,6 +269,46 @@ export type UserPreferences = {
   updated_at: string;
 };
 
+export type BookingStatus =
+  | "needs_booking"
+  | "in_progress"
+  | "booked"
+  | "skipped";
+
+export type PendingFlight = {
+  id: string;
+  user_id: string;
+  trip_id: string;
+  origin: string;
+  destination: string;
+  depart_date: string | null;
+  return_date: string | null;
+  passengers: number;
+  airline: string | null;
+  booking_status: BookingStatus;
+  booking_url: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PendingHotel = {
+  id: string;
+  user_id: string;
+  trip_id: string;
+  hotel_name: string;
+  location: string | null;
+  check_in: string | null;
+  check_out: string | null;
+  rooms: number;
+  guests: number;
+  booking_status: BookingStatus;
+  booking_url: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type TripWithMembers = Trip & {
   trip_members?: (TripMember & { profiles?: Profile | null })[];
   members?: Profile[];

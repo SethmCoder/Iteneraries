@@ -34,7 +34,7 @@ async function resolveUserEmail(userId: string): Promise<string | null> {
 }
 
 function defaultCta(type: NotificationType): { path: string; label: string } {
-  if (type.startsWith("flight")) return { path: "/flights", label: "Open Flight Booker" };
+  if (type.startsWith("flight")) return { path: "/flights", label: "Open Flights Pending" };
   if (type.startsWith("friend")) return { path: "/social", label: "Open Social" };
   if (type.startsWith("import")) return { path: "/settings?tab=imports", label: "Review import" };
   if (type.startsWith("account_")) return { path: "/settings?tab=account", label: "Manage account" };
