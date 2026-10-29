@@ -1,8 +1,7 @@
 "use client";
 
-import { useTransition } from "react";
+import Link from "next/link";
 import { Plus } from "lucide-react";
-import { createTripAction } from "@/app/actions/trips";
 import { Button } from "@/components/ui/button";
 
 export function NewItineraryButton({
@@ -12,16 +11,12 @@ export function NewItineraryButton({
   className?: string;
   label?: string;
 }) {
-  const [pending, startTransition] = useTransition();
-
   return (
-    <Button
-      className={className}
-      disabled={pending}
-      onClick={() => startTransition(() => createTripAction())}
-    >
-      <Plus className="h-4 w-4" />
-      {pending ? "Creating…" : label}
+    <Button className={className} asChild>
+      <Link href="/trips/new">
+        <Plus className="h-4 w-4" />
+        {label}
+      </Link>
     </Button>
   );
 }

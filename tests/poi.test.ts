@@ -25,7 +25,9 @@ describe("POI zoom config", () => {
       "museums",
       "historic",
     ]);
-    expect(getCategoriesForZoom(11)).toContain("restaurants");
+    // City band omits restaurants to cut Overpass load; neighborhood adds them
+    expect(getCategoriesForZoom(11)).not.toContain("restaurants");
+    expect(getCategoriesForZoom(13)).toContain("restaurants");
     expect(getCategoriesForZoom(14)).toContain("cafes");
     expect(getCategoriesForZoom(17).length).toBeGreaterThan(
       getCategoriesForZoom(7).length,

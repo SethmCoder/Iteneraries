@@ -25,6 +25,9 @@ export type GetPoisParams = ViewportBounds & {
   forceRefresh?: boolean;
 };
 
+/** Coalesce concurrent identical viewport fetches (same process). */
+const inFlight = new Map<string, Promise<PoiPlace[]>>();
+
 function inBounds(place: PoiPlace, b: ViewportBounds): boolean {
   return (
     place.lat >= b.south &&
@@ -73,16 +76,27 @@ export async function getPoisForViewport(
     }
   }
 
-  const fetched = await fetchPoisFromOverpass({
-    ...snapped,
-    categories,
-    limit,
-    signal,
-    majorOnly: getBandConfig(zoom).majorOnly,
-  });
+  let fetchPromise = inFlight.get(key);
+  if (!fetchPromise) {
+    fetchPromise = fetchPoisFromOverpass({
+      ...snapped,
+      categories,
+      limit,
+      signal,
+      majorOnly: getBandConfig(zoom).majorOnly,
+    })
+      .then((fetched) => {
+        const places = dedupePlaces(fetched);
+        setCache(key, places, getCacheTtlMs(zoom));
+        return places;
+      })
+      .finally(() => {
+        inFlight.delete(key);
+      });
+    inFlight.set(key, fetchPromise);
+  }
 
-  const places = dedupePlaces(fetched);
-  setCache(key, places, getCacheTtlMs(zoom));
+  const places = await fetchPromise;
 
   return {
     places: places.filter((p) => inBounds(p, viewport)).slice(0, limit),

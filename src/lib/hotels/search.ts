@@ -5,6 +5,7 @@ import {
   isGoogleHotelsConfigured,
 } from "@/lib/env";
 import { searchGoogleHotels } from "@/lib/hotels/google-places";
+import { searchOverpassAccommodations } from "@/lib/hotels/overpass-accommodation";
 import type { HotelSearchResult } from "@/lib/hotels/types";
 
 export type { HotelSearchResult } from "@/lib/hotels/types";
@@ -304,6 +305,22 @@ export async function searchHotels(
         rating: null,
         source: "openstreetmap",
       });
+    }
+  }
+
+  // Optional Overpass lodging fill when Nominatim is thin (locations only; no rates)
+  if (hotels.length < Math.min(5, limit)) {
+    try {
+      const extra = await searchOverpassAccommodations(q, limit);
+      for (const h of extra) {
+        const dedupe = `${h.name.toLowerCase()}|${h.lat.toFixed(3)}|${h.lon.toFixed(3)}`;
+        if (seen.has(dedupe)) continue;
+        seen.add(dedupe);
+        hotels.push(h);
+        if (hotels.length >= limit) break;
+      }
+    } catch {
+      // Keep Nominatim results; Overpass is optional
     }
   }
 

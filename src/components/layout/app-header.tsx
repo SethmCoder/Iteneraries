@@ -231,6 +231,12 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
               <DropdownMenuItem onClick={() => router.push("/bookings")}>
                 Bookings
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/suggester")}>
+                Itinerary Suggester
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/stats")}>
+                Stats
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/settings")}>
                 Settings
               </DropdownMenuItem>
@@ -295,6 +301,20 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
               onClick={() => setMobileOpen(false)}
             >
               Bookings
+            </Link>
+            <Link
+              href="/suggester"
+              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => setMobileOpen(false)}
+            >
+              Itinerary Suggester
+            </Link>
+            <Link
+              href="/stats"
+              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => setMobileOpen(false)}
+            >
+              Stats
             </Link>
             <Link
               href="/settings"

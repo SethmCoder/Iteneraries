@@ -193,6 +193,8 @@ export type Trip = {
   timezone: string | null;
   status: TripStatus;
   email_slug: string | null;
+  /** Adaptive trip setup answers (jsonb). Optional until migration applied. */
+  planning_profile?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 };

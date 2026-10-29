@@ -46,13 +46,16 @@ import {
 import type { PoiPlace } from "@/lib/poi/types";
 import type { ItineraryItem, Profile, Trip, TripMember } from "@/types/database";
 import { ActivityTypePicker } from "@/components/itinerary/activity-type-picker";
+import { TripConflictsPanel } from "@/components/itinerary/trip-conflicts-panel";
 import { TransportSegmentList } from "@/components/itinerary/transport-segments";
 import { CollaboratorsPanel } from "@/components/itinerary/collaborators-panel";
 import { TripForwardEmail } from "@/components/itinerary/trip-forward-email";
+import { detectTripConflicts } from "@/lib/itinerary/conflicts";
 import {
   getActivityType,
   type ActivityTypeId,
 } from "@/lib/itinerary/activity-types";
+import type { PendingFlight, PendingHotel } from "@/types/database";
 
 type TripSection =
   | "overview"
@@ -92,6 +95,8 @@ export function ItineraryWorkspace({
   role,
   currentUserId,
   forwardEmail,
+  pendingFlights = [],
+  pendingHotels = [],
 }: {
   trip: Trip;
   items: ItineraryItem[];
@@ -99,6 +104,8 @@ export function ItineraryWorkspace({
   role: "owner" | "editor" | "viewer";
   currentUserId: string;
   forwardEmail?: { configured: boolean; address: string | null };
+  pendingFlights?: PendingFlight[];
+  pendingHotels?: PendingHotel[];
 }) {
   const router = useRouter();
   const canEdit = role === "owner" || role === "editor";
@@ -157,6 +164,16 @@ export function ItineraryWorkspace({
           osmId: i.osm_id,
         })),
     [visibleItems],
+  );
+
+  const conflicts = useMemo(
+    () =>
+      detectTripConflicts({
+        items,
+        flights: pendingFlights,
+        hotels: pendingHotels,
+      }),
+    [items, pendingFlights, pendingHotels],
   );
 
   async function saveTripDetails() {
@@ -532,6 +549,7 @@ export function ItineraryWorkspace({
         configured={Boolean(forwardEmail?.configured)}
         tripName={name}
       />
+      <TripConflictsPanel conflicts={conflicts} />
       <div className="flex flex-col gap-3 rounded-[12px] border border-border bg-card p-4 shadow-sm lg:flex-row lg:items-end lg:justify-between">
         <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5 sm:col-span-2">

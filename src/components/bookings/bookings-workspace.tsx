@@ -32,6 +32,7 @@ type UnifiedBooking = {
   tripId: string;
   status: BookingStatus;
   href: string;
+  reference?: string | null;
 };
 
 export function BookingsWorkspace({
@@ -76,6 +77,7 @@ export function BookingsWorkspace({
         tripId: f.trip_id,
         status: f.booking_status,
         href: `/flights?tripId=${f.trip_id}`,
+        reference: f.notes,
       })),
       ...hotels.map((h) => ({
         id: h.id,
@@ -93,6 +95,7 @@ export function BookingsWorkspace({
         tripId: h.trip_id,
         status: h.booking_status,
         href: `/hotels?tripId=${h.trip_id}`,
+        reference: h.notes,
       })),
       ...cars.map((c) => ({
         id: c.id,
@@ -108,6 +111,7 @@ export function BookingsWorkspace({
         tripId: c.trip_id,
         status: c.booking_status,
         href: `/bookings?tripId=${c.trip_id}`,
+        reference: c.confirmation_number,
       })),
       ...activities.map((a) => ({
         id: a.id,
@@ -124,6 +128,7 @@ export function BookingsWorkspace({
         tripId: a.trip_id,
         status: a.booking_status,
         href: `/bookings?tripId=${a.trip_id}`,
+        reference: a.confirmation_number,
       })),
     ];
     return all.filter((row) => {
@@ -237,6 +242,11 @@ export function BookingsWorkspace({
                   <div className="min-w-0">
                     <p className="font-semibold text-foreground">{row.title}</p>
                     <p className="truncate text-xs text-muted">{row.subtitle}</p>
+                    {row.reference ? (
+                      <p className="mt-0.5 truncate text-xs text-muted">
+                        Ref / notes: {row.reference}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <span

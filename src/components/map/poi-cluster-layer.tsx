@@ -85,9 +85,10 @@ export function PoiClusterLayer({
   const [addingId, setAddingId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
-  const lastBoundsKey = useRef("");
+  const lastFetchKey = useRef("");
   const map = useMap();
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
+  const catsKey = activeCategories.slice().sort().join(",");
 
   useMapEvents({
     zoomend: () => setRefreshKey((k) => k + 1),
@@ -102,11 +103,12 @@ export function PoiClusterLayer({
       if (!shouldFetchPois(zoom)) {
         setPlaces([]);
         setFromCache(false);
+        lastFetchKey.current = "";
         return;
       }
-      const key = boundsKey(map);
-      if (key === lastBoundsKey.current && places.length > 0) return;
-      lastBoundsKey.current = key;
+      const key = `${boundsKey(map)}|${catsKey}`;
+      if (key === lastFetchKey.current) return;
+      lastFetchKey.current = key;
 
       const b = map.getBounds();
       abortRef.current?.abort();
@@ -130,6 +132,8 @@ export function PoiClusterLayer({
         });
         if (!res.ok) {
           if (res.status === 499) return;
+          // Allow retry after failure for the same viewport
+          lastFetchKey.current = "";
           const body = await res.json().catch(() => ({}));
           throw new Error(
             (body as { error?: string }).error || "Failed to load places",
@@ -143,6 +147,7 @@ export function PoiClusterLayer({
         setFromCache(Boolean(data.fromCache));
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
+        lastFetchKey.current = "";
         setError((e as Error).message || "Places unavailable");
       } finally {
         setLoading(false);
@@ -153,8 +158,7 @@ export function PoiClusterLayer({
       clearTimeout(timer);
       abortRef.current?.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- places length only gates skip
-  }, [enabled, map, activeCategories, refreshKey]);
+  }, [enabled, map, activeCategories, catsKey, refreshKey]);
 
   const visible = useMemo(
     () =>
@@ -258,7 +262,7 @@ export function PoiClusterLayer({
             type="button"
             className="underline"
             onClick={() => {
-              lastBoundsKey.current = "";
+              lastFetchKey.current = "";
               setRefreshKey((k) => k + 1);
             }}
           >

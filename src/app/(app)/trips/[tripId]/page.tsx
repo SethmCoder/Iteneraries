@@ -15,7 +15,14 @@ import {
   isEmailImportConfigured,
 } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
-import type { ItineraryItem, Profile, Trip, TripMember } from "@/types/database";
+import type {
+  ItineraryItem,
+  PendingFlight,
+  PendingHotel,
+  Profile,
+  Trip,
+  TripMember,
+} from "@/types/database";
 
 export async function generateMetadata({
   params,
@@ -105,6 +112,19 @@ export default async function TripDetailPage({
     profiles: Array.isArray(m.profiles) ? m.profiles[0] ?? null : m.profiles,
   }));
 
+  const [{ data: pendingFlights }, { data: pendingHotels }] = await Promise.all([
+    supabase
+      .from("pending_flights")
+      .select("*")
+      .eq("trip_id", tripId)
+      .order("updated_at", { ascending: false }),
+    supabase
+      .from("pending_hotels")
+      .select("*")
+      .eq("trip_id", tripId)
+      .order("updated_at", { ascending: false }),
+  ]);
+
   const inbound = getInboundEmailAddress();
   const typedTrip = trip as Trip;
 
@@ -119,6 +139,8 @@ export default async function TripDetailPage({
         configured: isEmailImportConfigured(),
         address: buildTripForwardAddress(inbound, typedTrip.email_slug),
       }}
+      pendingFlights={(pendingFlights ?? []) as PendingFlight[]}
+      pendingHotels={(pendingHotels ?? []) as PendingHotel[]}
     />
   );
 }
