@@ -557,7 +557,7 @@ export function FlightBookerWorkspace({
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] [&>*]:min-w-0">
         <section className="rounded-[12px] border border-border bg-card p-4 shadow-sm lg:border-r">
           <h2 className="font-semibold">Create a Search</h2>
           <p className="mt-0.5 text-xs text-muted">

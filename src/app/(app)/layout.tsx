@@ -26,7 +26,7 @@ export default async function AppLayout({
             Preview mode — UI only. Changes are not saved until Supabase is connected.
           </div>
           <AppHeader profile={demoProfile()} nextTrip={demoTrips()[0] ?? null} />
-          <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 md:px-6">
+          <main className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-4 sm:px-4 sm:py-5 md:px-6">
             {children}
           </main>
         </div>
@@ -87,7 +87,7 @@ export default async function AppLayout({
       <div className="flex min-h-screen flex-col bg-[var(--page-bg)]">
         <AccountAccessGate billing={billing} />
         <AppHeader profile={profile} nextTrip={nextTrip} />
-        <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 md:px-6">
+        <main className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-4 sm:px-4 sm:py-5 md:px-6">
           {children}
         </main>
       </div>

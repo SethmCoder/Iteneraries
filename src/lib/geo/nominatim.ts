@@ -5,6 +5,8 @@ export type GeocodeResult = {
   lat: number;
   lon: number;
   display_name: string;
+  osm_type?: string | null;
+  osm_id?: string | null;
 };
 
 export class NominatimError extends Error {
@@ -96,7 +98,20 @@ function parseNominatimResults(raw: unknown): GeocodeResult[] {
       typeof row.name === "string" && row.name.trim()
         ? row.name.trim()
         : displayName.split(",")[0].trim();
-    results.push({ name, lat, lon, display_name: displayName });
+    const osmType =
+      typeof row.osm_type === "string" ? row.osm_type.toLowerCase() : null;
+    const osmId =
+      row.osm_id != null && String(row.osm_id).length
+        ? String(row.osm_id)
+        : null;
+    results.push({
+      name,
+      lat,
+      lon,
+      display_name: displayName,
+      osm_type: osmType,
+      osm_id: osmId,
+    });
   }
   return results;
 }

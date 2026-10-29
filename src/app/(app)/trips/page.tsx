@@ -18,7 +18,7 @@ export default async function TripsPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold">Your trips</h1>
+            <h1 className="text-xl font-bold sm:text-2xl">Your trips</h1>
             <p className="text-sm text-muted">
               Preview data — explore the map and UI without Supabase.
             </p>
@@ -78,7 +78,7 @@ export default async function TripsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Your trips</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">Your trips</h1>
           <p className="text-sm text-muted">
             Plan itineraries and explore destinations on the map.
           </p>

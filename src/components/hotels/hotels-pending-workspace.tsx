@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Building2, ExternalLink, Search, Trash2 } from "lucide-react";
 import {
@@ -270,21 +271,35 @@ export function HotelsPendingWorkspace({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Hotels Pending</h1>
-        <p className="mt-1 text-sm text-muted">
-          Assign hotels to a trip and track what still needs booking. Search
-          uses Google Places lodging (photos + map) when{" "}
-          <code className="text-xs">GOOGLE_PLACES_API_KEY</code> is set,
-          otherwise OpenStreetMap.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Hotels Pending</h1>
+          <p className="mt-1 text-sm text-muted">
+            Assign hotels to a trip and track what still needs booking. Search
+            uses Google Places lodging (photos + map) when{" "}
+            <code className="text-xs">GOOGLE_PLACES_API_KEY</code> is set,
+            otherwise OpenStreetMap.
+          </p>
+        </div>
+        {tripId ? (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" asChild>
+              <Link href={`/trips/${tripId}`}>Back to trip planning</Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/suggester?tripId=${tripId}&mode=lesser`}>
+                Continue to lesser activities
+              </Link>
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       {message ? <p className="text-sm text-success">{message}</p> : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <section className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
+        <section className="min-w-0 rounded-[12px] border border-border bg-card p-3 shadow-sm sm:p-4">
           <h2 className="font-semibold">
             {form.id ? "Edit hotel" : "Add hotel"}
           </h2>
@@ -575,7 +590,7 @@ export function HotelsPendingWorkspace({
           </div>
         </section>
 
-        <section className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
+        <section className="min-w-0 rounded-[12px] border border-border bg-card p-3 shadow-sm sm:p-4">
           <h2 className="font-semibold">Your pending hotels</h2>
           <p className="mt-0.5 text-xs text-muted">
             Status shows what still needs to be booked for each trip.

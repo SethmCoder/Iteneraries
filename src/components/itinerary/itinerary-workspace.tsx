@@ -10,6 +10,7 @@ import {
   List,
   Loader2,
   Building2,
+  Map as MapIcon,
   Plane,
   Route,
   Sparkles,
@@ -47,14 +48,25 @@ import type { PoiPlace } from "@/lib/poi/types";
 import type { ItineraryItem, Profile, Trip, TripMember } from "@/types/database";
 import { ActivityTypePicker } from "@/components/itinerary/activity-type-picker";
 import { TripConflictsPanel } from "@/components/itinerary/trip-conflicts-panel";
+import {
+  PlanningProgress,
+  phaseFromStage,
+} from "@/components/itinerary/planning-progress";
 import { TransportSegmentList } from "@/components/itinerary/transport-segments";
 import { CollaboratorsPanel } from "@/components/itinerary/collaborators-panel";
 import { TripForwardEmail } from "@/components/itinerary/trip-forward-email";
 import { detectTripConflicts } from "@/lib/itinerary/conflicts";
 import {
+  deriveStageStatuses,
+  parsePlanningProfile,
+  type PlanningProfile,
+  type PlanningStageId,
+} from "@/lib/itinerary/planning-profile";
+import {
   getActivityType,
   type ActivityTypeId,
 } from "@/lib/itinerary/activity-types";
+import { savePendingActivityAction } from "@/app/actions/pending-bookings";
 import type { PendingFlight, PendingHotel } from "@/types/database";
 
 type TripSection =
@@ -126,6 +138,8 @@ export function ItineraryWorkspace({
   const [searching, setSearching] = useState(false);
   const [activityType, setActivityType] = useState<ActivityTypeId>("attraction");
   const [tripSection, setTripSection] = useState<TripSection>("itinerary");
+  /** Narrow screens: show itinerary or map one at a time instead of squeezed columns. */
+  const [mobilePane, setMobilePane] = useState<"itinerary" | "map">("itinerary");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedItinerary | null>(null);
   const [suggestError, setSuggestError] = useState<string | null>(null);
@@ -136,6 +150,35 @@ export function ItineraryWorkspace({
   const [routeError, setRouteError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"all" | "days">("days");
   const [selectedDay, setSelectedDay] = useState<string>("all");
+  const [planningProfile, setPlanningProfile] = useState<PlanningProfile>(() =>
+    parsePlanningProfile(trip.planning_profile),
+  );
+  const [activityTitle, setActivityTitle] = useState("");
+  const [activityLocation, setActivityLocation] = useState("");
+
+  const stageStatuses = useMemo(
+    () =>
+      deriveStageStatuses({
+        profile: planningProfile,
+        flights: pendingFlights,
+        hotels: pendingHotels,
+        items: items.map((i) => ({
+          title: i.title,
+          details: i.details,
+          start_at: i.start_at,
+        })),
+      }),
+    [planningProfile, pendingFlights, pendingHotels, items],
+  );
+
+  async function persistPlanningProfile(next: PlanningProfile) {
+    setPlanningProfile(next);
+    if (!canEdit || isDemoTrip) return;
+    await updateTripAction({
+      tripId: trip.id,
+      planning_profile: next,
+    });
+  }
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order),
@@ -550,6 +593,68 @@ export function ItineraryWorkspace({
         tripName={name}
       />
       <TripConflictsPanel conflicts={conflicts} />
+      <PlanningProgress
+        tripId={trip.id}
+        profile={planningProfile}
+        statuses={stageStatuses}
+        activeStage={
+          tripSection === "activities"
+            ? "major_activities"
+            : tripSection === "overview"
+              ? "overview"
+              : tripSection === "itinerary"
+                ? "itinerary"
+                : "itinerary"
+        }
+        pending={pending}
+        onSelectStage={(stage: PlanningStageId) => {
+          if (stage === "flights") {
+            window.location.href = `/flights?tripId=${trip.id}&from=plan`;
+            return;
+          }
+          if (stage === "hotels") {
+            window.location.href = `/hotels?tripId=${trip.id}&from=plan`;
+            return;
+          }
+          if (stage === "major_activities") {
+            setTripSection("activities");
+            return;
+          }
+          setTripSection("itinerary");
+        }}
+        onSkipStage={(stage) => {
+          startTransition(async () => {
+            const skipped = [
+              ...(planningProfile.skippedPhases ?? []).filter((p) => p !== stage),
+              stage,
+            ];
+            const order: PlanningStageId[] = [
+              "flights",
+              "major_activities",
+              "hotels",
+              "lesser_activities",
+            ];
+            const idx = order.indexOf(stage);
+            const nextPhase =
+              idx >= 0 && idx < order.length - 1
+                ? phaseFromStage(order[idx + 1]!)
+                : "done";
+            await persistPlanningProfile({
+              ...planningProfile,
+              skippedPhases: skipped,
+              guidedPhase: nextPhase,
+            });
+          });
+        }}
+        onMarkDone={() => {
+          startTransition(async () => {
+            await persistPlanningProfile({
+              ...planningProfile,
+              guidedPhase: "done",
+            });
+          });
+        }}
+      />
       <div className="flex flex-col gap-3 rounded-[12px] border border-border bg-card p-4 shadow-sm lg:flex-row lg:items-end lg:justify-between">
         <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5 sm:col-span-2">
@@ -659,7 +764,7 @@ export function ItineraryWorkspace({
       </div>
 
       <nav
-        className="flex flex-wrap gap-1 rounded-[12px] border border-border bg-card p-1.5 shadow-sm"
+        className="scrollbar-none flex gap-1 overflow-x-auto rounded-[12px] border border-border bg-card p-1.5 shadow-sm"
         aria-label="Trip sections"
       >
         {TRIP_SECTIONS.map((section) => (
@@ -668,11 +773,11 @@ export function ItineraryWorkspace({
             type="button"
             onClick={() => {
               if (section.id === "flights") {
-                window.location.href = `/flights?tripId=${trip.id}`;
+                window.location.href = `/flights?tripId=${trip.id}&from=plan`;
                 return;
               }
               if (section.id === "hotels") {
-                window.location.href = `/hotels?tripId=${trip.id}`;
+                window.location.href = `/hotels?tripId=${trip.id}&from=plan`;
                 return;
               }
               if (section.id === "bookings") {
@@ -681,9 +786,8 @@ export function ItineraryWorkspace({
               }
               setTripSection(section.id);
             }}
-            className={`rounded-[8px] px-3 py-1.5 text-sm font-semibold transition-colors ${
-              tripSection === section.id ||
-              (section.id === "flights" && tripSection === "flights")
+            className={`shrink-0 rounded-[8px] px-3 py-2 text-sm font-semibold transition-colors ${
+              tripSection === section.id
                 ? "bg-brand text-white"
                 : "text-muted hover:bg-brand-light hover:text-brand"
             }`}
@@ -788,8 +892,188 @@ export function ItineraryWorkspace({
         </div>
       ) : null}
 
+      {tripSection === "overview" ? (
+        <section className="space-y-3 rounded-[12px] border border-border bg-card p-4 shadow-sm">
+          <h2 className="font-semibold">Planning overview</h2>
+          <p className="text-sm text-muted">
+            Confirmed bookings, saved options, and suggested stops for this trip.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-[10px] border border-border p-3">
+              <p className="text-xs font-semibold uppercase text-muted">Flights</p>
+              <p className="mt-1 text-sm font-semibold">
+                {pendingFlights.filter((f) => f.booking_status === "booked").length}{" "}
+                confirmed · {pendingFlights.length} total
+              </p>
+              <Button size="sm" variant="secondary" className="mt-2" asChild>
+                <Link href={`/flights?tripId=${trip.id}&from=plan`}>Manage</Link>
+              </Button>
+            </div>
+            <div className="rounded-[10px] border border-border p-3">
+              <p className="text-xs font-semibold uppercase text-muted">Hotels</p>
+              <p className="mt-1 text-sm font-semibold">
+                {pendingHotels.filter((h) => h.booking_status === "booked").length}{" "}
+                confirmed · {pendingHotels.length} total
+              </p>
+              <Button size="sm" variant="secondary" className="mt-2" asChild>
+                <Link href={`/hotels?tripId=${trip.id}&from=plan`}>Manage</Link>
+              </Button>
+            </div>
+            <div className="rounded-[10px] border border-border p-3">
+              <p className="text-xs font-semibold uppercase text-muted">Itinerary</p>
+              <p className="mt-1 text-sm font-semibold">{items.length} stops</p>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-2"
+                onClick={() => setTripSection("itinerary")}
+              >
+                Open itinerary
+              </Button>
+            </div>
+          </div>
+          {(planningProfile.mustDos?.length ?? 0) > 0 ? (
+            <div>
+              <p className="text-xs font-semibold uppercase text-muted">Must-dos</p>
+              <ul className="mt-1 list-disc pl-5 text-sm">
+                {planningProfile.mustDos!.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {tripSection === "activities" ? (
+        <section className="space-y-3 rounded-[12px] border border-border bg-card p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="font-semibold">Major activities</h2>
+              <p className="text-sm text-muted">
+                Lock Must-Dos and bookable experiences before choosing a hotel.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" asChild>
+                <Link href={`/suggester?tripId=${trip.id}&mode=major`}>
+                  Suggest majors
+                </Link>
+              </Button>
+              <Button size="sm" variant="secondary" asChild>
+                <Link href="/saved-places">Saved Places</Link>
+              </Button>
+            </div>
+          </div>
+          {(planningProfile.mustDos?.length ?? 0) > 0 ? (
+            <ul className="space-y-1 text-sm">
+              {planningProfile.mustDos!.map((m) => (
+                <li
+                  key={m}
+                  className="rounded-[8px] border border-accent/40 bg-accent/15 px-3 py-2"
+                >
+                  <span className="font-medium">{m}</span>
+                  <span className="ml-2 text-xs text-muted">required</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted">
+              No Must-Dos yet. Add them in trip setup or the Itinerary Suggester.
+            </p>
+          )}
+          {canEdit ? (
+            <div className="space-y-2 rounded-[10px] border border-border p-3">
+              <p className="text-sm font-semibold">Track a bookable activity</p>
+              <Input
+                placeholder="Title (e.g. Louvre tickets)"
+                value={activityTitle}
+                onChange={(e) => setActivityTitle(e.target.value)}
+              />
+              <Input
+                placeholder="Location (optional)"
+                value={activityLocation}
+                onChange={(e) => setActivityLocation(e.target.value)}
+              />
+              <Button
+                size="sm"
+                disabled={pending || !activityTitle.trim() || isDemoTrip}
+                onClick={() =>
+                  startTransition(async () => {
+                    await savePendingActivityAction({
+                      tripId: trip.id,
+                      title: activityTitle.trim(),
+                      activityType: "attraction",
+                      location: activityLocation.trim() || null,
+                      bookingStatus: "needs_booking",
+                    });
+                    setActivityTitle("");
+                    setActivityLocation("");
+                    await persistPlanningProfile({
+                      ...planningProfile,
+                      guidedPhase: "major_activities",
+                    });
+                    router.refresh();
+                  })
+                }
+              >
+                Save to bookings checklist
+              </Button>
+            </div>
+          ) : null}
+          <Button
+            variant="secondary"
+            onClick={() => setTripSection("itinerary")}
+          >
+            Continue to itinerary / lesser activities
+          </Button>
+        </section>
+      ) : null}
+
+      {tripSection === "itinerary" ||
+      !["overview", "activities"].includes(tripSection) ? (
+      <>
+      <div
+        className="flex gap-1 rounded-[12px] border border-border bg-card p-1 lg:hidden"
+        role="tablist"
+        aria-label="Itinerary or map"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobilePane === "itinerary"}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-[8px] px-3 py-2.5 text-sm font-semibold transition-colors ${
+            mobilePane === "itinerary"
+              ? "bg-brand text-white"
+              : "text-muted hover:bg-brand-light hover:text-brand"
+          }`}
+          onClick={() => setMobilePane("itinerary")}
+        >
+          <List className="h-4 w-4" />
+          Itinerary
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobilePane === "map"}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-[8px] px-3 py-2.5 text-sm font-semibold transition-colors ${
+            mobilePane === "map"
+              ? "bg-brand text-white"
+              : "text-muted hover:bg-brand-light hover:text-brand"
+          }`}
+          onClick={() => setMobilePane("map")}
+        >
+          <MapIcon className="h-4 w-4" />
+          Map
+        </button>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[42%_1fr] lg:items-start">
-        <section className="order-2 space-y-3 lg:order-1">
+        <section
+          className={`order-2 space-y-3 lg:order-1 ${
+            mobilePane === "itinerary" ? "block" : "hidden lg:block"
+          }`}
+        >
           <div className="rounded-[12px] border border-border bg-card p-3">
             <h2 className="text-base font-semibold">Your itinerary</h2>
             <p className="mt-0.5 text-xs text-muted">
@@ -808,9 +1092,10 @@ export function ItineraryWorkspace({
                   value={activityType}
                   onChange={setActivityType}
                 />
-                <div className="flex gap-2">
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
                   <Input
                     id="place-search"
+                    className="min-w-0 flex-1"
                     value={searchQ}
                     placeholder={
                       activityType === "restaurant"
@@ -827,6 +1112,7 @@ export function ItineraryWorkspace({
                   />
                   <Button
                     type="button"
+                    className="w-full shrink-0 sm:w-auto"
                     disabled={searching}
                     onClick={() => void searchPlaces()}
                   >
@@ -861,6 +1147,7 @@ export function ItineraryWorkspace({
               <Button
                 size="sm"
                 variant={viewMode === "all" ? "default" : "secondary"}
+                className="min-h-9"
                 onClick={() => {
                   setViewMode("all");
                   setSelectedDay("all");
@@ -872,6 +1159,7 @@ export function ItineraryWorkspace({
               <Button
                 size="sm"
                 variant={viewMode === "days" ? "default" : "secondary"}
+                className="min-h-9"
                 onClick={() => setViewMode("days")}
               >
                 <CalendarDays className="h-3.5 w-3.5" />
@@ -975,16 +1263,29 @@ export function ItineraryWorkspace({
           )}
         </section>
 
-        <section className="order-1 min-h-[40vh] lg:order-2 lg:sticky lg:top-20 lg:min-h-[calc(100vh-8rem)]">
+        <section
+          className={`order-1 min-h-0 lg:order-2 lg:sticky lg:top-20 lg:min-h-[calc(100vh-8rem)] ${
+            mobilePane === "map" ? "block" : "hidden lg:block"
+          }`}
+        >
           <p className="mb-2 text-sm font-semibold text-foreground">Trip map</p>
-          <p className="mb-2 text-xs text-muted">
-            Pins and routes for the stops in your current view. Scroll down for the itinerary list.
+          <p className="mb-2 text-xs text-muted lg:block">
+            <span className="lg:hidden">
+              Pins and routes for stops in your current view.
+            </span>
+            <span className="hidden lg:inline">
+              Pins and routes for the stops in your current view. Scroll down for
+              the itinerary list.
+            </span>
           </p>
-          <div className="h-[42vh] min-h-[280px] lg:h-[calc(100vh-10rem)]">
+          <div className="h-[min(70vh,32rem)] min-h-[280px] w-full lg:h-[calc(100vh-10rem)]">
             <WaypointMap
               pins={pins}
               selectedPinId={selectedId}
-              onSelectPin={setSelectedId}
+              onSelectPin={(id) => {
+                setSelectedId(id);
+                if (id) setMobilePane("itinerary");
+              }}
               tripId={trip.id}
               onAddPoi={canEdit ? addPoi : undefined}
               enablePoi
@@ -994,6 +1295,8 @@ export function ItineraryWorkspace({
           </div>
         </section>
       </div>
+      </>
+      ) : null}
 
       <Dialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <DialogContent>

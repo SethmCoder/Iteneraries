@@ -5,9 +5,10 @@ import { createTripAction } from "@/app/actions/trips";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type {
-  PlanningProfile,
-  PlanningScenario,
+import {
+  initialGuidedPhase,
+  type PlanningProfile,
+  type PlanningScenario,
 } from "@/lib/itinerary/planning-profile";
 
 const SCENARIOS: { id: PlanningScenario; title: string; body: string }[] = [
@@ -54,6 +55,7 @@ export function AdaptiveTripSetup() {
   );
   const [eventTitle, setEventTitle] = useState("");
   const [eventDate, setEventDate] = useState("");
+  const [originAirports, setOriginAirports] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -75,6 +77,11 @@ export function AdaptiveTripSetup() {
     const profile: PlanningProfile = {
       scenario: scenario ?? undefined,
       destinations: destination.trim() ? [destination.trim()] : undefined,
+      originAirports: originAirports
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => s.length === 3)
+        .slice(0, 8),
       travelers,
       purpose: purpose.trim() || undefined,
       mustDos: mustDo
@@ -83,6 +90,7 @@ export function AdaptiveTripSetup() {
         .filter(Boolean),
       pace,
       cashVsPoints,
+      guidedPhase: initialGuidedPhase(scenario ?? undefined),
       dateFlexibility:
         scenario === "destination_and_dates" || scenario === "fixed_event"
           ? "fixed"
@@ -267,6 +275,15 @@ export function AdaptiveTripSetup() {
                 placeholder="Vacation, business…"
               />
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="origins">Origin airports (optional)</Label>
+            <Input
+              id="origins"
+              value={originAirports}
+              onChange={(e) => setOriginAirports(e.target.value)}
+              placeholder="SEA, PDX"
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="must">Must-do activities</Label>

@@ -7,7 +7,6 @@ import { addItineraryItemAction } from "@/app/actions/itinerary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { buildDeterministicDrafts } from "@/lib/itinerary/deterministic-drafts";
 
 type TripOption = {
   id: string;
@@ -17,6 +16,12 @@ type TripOption = {
   end_date: string | null;
 };
 
+type PlaceListOption = {
+  id: string;
+  name: string;
+  isShared?: boolean;
+};
+
 type SuggestedItem = {
   title: string;
   description?: string;
@@ -24,6 +29,13 @@ type SuggestedItem = {
   locationName?: string;
   startTime?: string;
   durationMinutes?: number;
+  hoursStatus?: string;
+  source?: string;
+  relevance?: string;
+  osmId?: string | null;
+  lat?: number | null;
+  lon?: number | null;
+  locked?: boolean;
 };
 
 type SuggestedDay = {
@@ -32,29 +44,65 @@ type SuggestedDay = {
   items: SuggestedItem[];
 };
 
+type Excluded = { title: string; reason: string };
+
 type Draft = {
   id: string;
   label: string;
   reason: string;
   days: SuggestedDay[];
   notes?: string;
+  excluded?: Excluded[];
 };
+
+function combineDateTime(
+  tripStart: string | null | undefined,
+  dayNumber: number,
+  hm?: string,
+): string | null {
+  if (!tripStart || !hm) return null;
+  const base = new Date(`${tripStart}T12:00:00Z`);
+  if (!Number.isFinite(base.getTime())) return null;
+  base.setUTCDate(base.getUTCDate() + (dayNumber - 1));
+  const [h, m] = hm.split(":").map(Number);
+  base.setUTCHours(h ?? 0, m ?? 0, 0, 0);
+  return base.toISOString();
+}
 
 export function ItinerarySuggesterWorkspace({
   trips,
+  lists,
+  initialListIds = [],
+  initialTripId,
+  initialMode = "full",
+  initialMustDos = "",
   isDemo,
 }: {
   trips: TripOption[];
+  lists: PlaceListOption[];
+  initialListIds?: string[];
+  initialTripId?: string;
+  initialMode?: "full" | "major" | "lesser";
+  initialMustDos?: string;
   isDemo: boolean;
 }) {
-  const [tripId, setTripId] = useState(trips[0]?.id ?? "");
+  const startTrip =
+    trips.find((t) => t.id === initialTripId) ?? trips[0] ?? null;
+  const [tripId, setTripId] = useState(startTrip?.id ?? "");
   const [destination, setDestination] = useState(
-    trips[0]?.destination_name ?? "",
+    startTrip?.destination_name ?? "",
   );
-  const [startDate, setStartDate] = useState(trips[0]?.start_date ?? "");
-  const [endDate, setEndDate] = useState(trips[0]?.end_date ?? "");
+  const [startDate, setStartDate] = useState(startTrip?.start_date ?? "");
+  const [endDate, setEndDate] = useState(startTrip?.end_date ?? "");
   const [pace, setPace] = useState("balanced");
-  const [mustDos, setMustDos] = useState("");
+  const [mustDos, setMustDos] = useState(initialMustDos);
+  const [mode, setMode] = useState<"full" | "major" | "lesser">(initialMode);
+  const [requiredMustDos, setRequiredMustDos] = useState(
+    initialMode !== "lesser",
+  );
+  const [selectedLists, setSelectedLists] = useState<Set<string>>(
+    () => new Set(initialListIds),
+  );
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -78,122 +126,6 @@ export function ItinerarySuggesterWorkspace({
     }
   }
 
-  async function generate() {
-    setError(null);
-    setMessage(null);
-    if (!tripId) {
-      setError("Select a trip first (suggestions use that trip’s destination)");
-      return;
-    }
-    if (!destination.trim() && !selectedTrip?.destination_name) {
-      setError("Set a destination on the trip before generating drafts");
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch("/api/ai/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tripId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // Fall back to deterministic scaffolds (no invented fares/hotels)
-        const fallback = buildDeterministicDrafts({
-          destination:
-            destination.trim() || selectedTrip?.destination_name || "Destination",
-          startDate: startDate || selectedTrip?.start_date || undefined,
-          endDate: endDate || selectedTrip?.end_date || undefined,
-          mustDos: mustDoList(),
-          pace,
-        }) as Draft[];
-        setDrafts(fallback);
-        setSelectedDraftId(fallback[0]?.id ?? null);
-        setMessage(
-          data.error
-            ? `AI unavailable (${data.error}). Showing deterministic scaffolds instead.`
-            : "AI unavailable. Showing deterministic scaffolds instead.",
-        );
-        return;
-      }
-      const days = (data.days ?? []) as SuggestedDay[];
-      const notes = data.notes as string | undefined;
-      if (!days.length) {
-        const fallback = buildDeterministicDrafts({
-          destination:
-            destination.trim() || selectedTrip?.destination_name || "Destination",
-          startDate: startDate || undefined,
-          endDate: endDate || undefined,
-          mustDos: mustDoList(),
-          pace,
-        }) as Draft[];
-        setDrafts(fallback);
-        setSelectedDraftId(fallback[0]?.id ?? null);
-        setMessage("AI returned no days — using deterministic scaffolds.");
-        return;
-      }
-      // Build up to 3 distinct draft lenses from the same verified AI output
-      // (deterministic variants — not invented flights/hotels).
-      const variants: Draft[] = [
-        {
-          id: "balanced",
-          label: "Balanced draft",
-          reason: "Uses the suggested pace and must-dos as returned by the model.",
-          days,
-          notes,
-        },
-      ];
-      if (days.length > 1) {
-        variants.push({
-          id: "lighter",
-          label: "Lighter days",
-          reason: "Same places, fewer stops per day (first half of each day).",
-          days: days.map((d) => ({
-            ...d,
-            items: d.items.slice(0, Math.max(1, Math.ceil(d.items.length / 2))),
-          })),
-          notes,
-        });
-        variants.push({
-          id: "must-first",
-          label: "Must-dos first",
-          reason: "Prioritizes items whose category or title matches your must-dos.",
-          days: days.map((d) => ({
-            ...d,
-            items: [...d.items].sort((a, b) => {
-              const score = (item: SuggestedItem) =>
-                mustDoList().some((m) =>
-                  `${item.title} ${item.category}`.toLowerCase().includes(m.toLowerCase()),
-                )
-                  ? 0
-                  : 1;
-              return score(a) - score(b);
-            }),
-          })),
-          notes,
-        });
-      }
-      setDrafts(variants);
-      setSelectedDraftId(variants[0]?.id ?? null);
-    } catch (e) {
-      const fallback = buildDeterministicDrafts({
-        destination:
-          destination.trim() || selectedTrip?.destination_name || "Destination",
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
-        mustDos: mustDoList(),
-        pace,
-      }) as Draft[];
-      setDrafts(fallback);
-      setSelectedDraftId(fallback[0]?.id ?? null);
-      setMessage(
-        `${(e as Error).message || "Could not reach AI"} — showing deterministic scaffolds.`,
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
   function mustDoList() {
     return mustDos
       .split(",")
@@ -201,7 +133,115 @@ export function ItinerarySuggesterWorkspace({
       .filter(Boolean);
   }
 
-  function addDraftToTrip(draft: Draft, selectedOnly = false) {
+  function toggleList(id: string) {
+    setSelectedLists((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleLock(draftId: string, dayNumber: number, index: number) {
+    setDrafts((prev) =>
+      prev.map((d) => {
+        if (d.id !== draftId) return d;
+        return {
+          ...d,
+          days: d.days.map((day) => {
+            if (day.dayNumber !== dayNumber) return day;
+            return {
+              ...day,
+              items: day.items.map((item, i) =>
+                i === index ? { ...item, locked: !item.locked } : item,
+              ),
+            };
+          }),
+        };
+      }),
+    );
+  }
+
+  async function generate() {
+    setError(null);
+    setMessage(null);
+    if (!tripId) {
+      setError("Select a trip first");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/ai/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tripId,
+          mustDos: mustDoList(),
+          listIds: mode === "major" ? [] : [...selectedLists],
+          pace,
+          mode,
+          requiredMustDos: requiredMustDos ? mustDoList() : [],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Suggestion unavailable");
+      }
+      const days = (data.days ?? []) as SuggestedDay[];
+      const notes = data.notes as string | undefined;
+      const excluded = (data.excluded ?? []) as Excluded[];
+      if (!days.length) {
+        setDrafts([]);
+        setError("No itinerary suggestions returned.");
+        return;
+      }
+      const variants: Draft[] = [
+        {
+          id: "primary",
+          label: data.source === "ai" ? "AI schedule" : "Scheduled draft",
+          reason:
+            "Must-Dos and selected lists, timed across the day. Meals and unscheduled gaps are labeled.",
+          days,
+          notes,
+          excluded,
+        },
+      ];
+      if (days.length > 1) {
+        variants.push({
+          id: "lighter",
+          label: "Lighter days",
+          reason: "Fewer non-meal stops per day.",
+          days: days.map((d) => ({
+            ...d,
+            items: d.items.filter(
+              (i, idx) =>
+                i.source === "meal" ||
+                i.locked ||
+                idx < Math.ceil(d.items.length * 0.6),
+            ),
+          })),
+          notes,
+          excluded,
+        });
+      }
+      setDrafts(variants);
+      setSelectedDraftId(variants[0]?.id ?? null);
+      if (data.source === "deterministic" || data.source === "deterministic_fallback") {
+        setMessage(
+          data.source === "deterministic"
+            ? "Built a timed schedule without AI (OPENAI_API_KEY not set)."
+            : "AI unavailable — used the deterministic scheduler.",
+        );
+      }
+    } catch (e) {
+      setDrafts([]);
+      setError((e as Error).message || "Could not generate suggestions");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function addDraftToTrip(draft: Draft) {
     if (!tripId) {
       setError("Select a destination trip first");
       return;
@@ -212,16 +252,11 @@ export function ItinerarySuggesterWorkspace({
       return;
     }
 
-    const items = draft.days.flatMap((d) =>
-      d.items.map((item) => ({ day: d.dayNumber, item })),
+    const toAdd = draft.days.flatMap((d) =>
+      d.items
+        .filter((item) => item.source !== "unscheduled")
+        .map((item) => ({ day: d.dayNumber, item })),
     );
-    const toAdd = selectedOnly
-      ? items.filter(({ item }) =>
-          mustDoList().some((m) =>
-            item.title.toLowerCase().includes(m.toLowerCase()),
-          ),
-        )
-      : items;
 
     if (toAdd.length === 0) {
       setError("Nothing to add from this draft");
@@ -236,18 +271,37 @@ export function ItinerarySuggesterWorkspace({
 
     startTransition(async () => {
       try {
-        for (const { item } of toAdd) {
+        for (const { day, item } of toAdd) {
+          const start_at = combineDateTime(
+            startDate || selectedTrip?.start_date,
+            day,
+            item.startTime,
+          );
+          let end_at: string | null = null;
+          if (start_at && item.durationMinutes) {
+            end_at = new Date(
+              Date.parse(start_at) + item.durationMinutes * 60_000,
+            ).toISOString();
+          }
           await addItineraryItemAction({
             tripId,
             title: item.title,
             item_type: "place",
             location_name: item.locationName ?? item.title,
+            latitude: item.lat ?? null,
+            longitude: item.lon ?? null,
+            start_at,
+            end_at,
+            osm_id: item.osmId ?? null,
             details: {
               source: "itinerary_suggester",
               draftId: draft.id,
               category: item.category,
               description: item.description ?? null,
               suggested: true,
+              hoursStatus: item.hoursStatus ?? null,
+              relevance: item.relevance ?? null,
+              locked: item.locked ?? false,
             },
           });
         }
@@ -268,8 +322,8 @@ export function ItinerarySuggesterWorkspace({
       <div>
         <h1 className="text-2xl font-semibold">Itinerary Suggester</h1>
         <p className="mt-1 text-sm text-muted">
-          Generate draft itineraries from your trip preferences. Drafts are not
-          saved until you click Add to Itinerary.
+          Generate timed draft itineraries from Must-Dos and Saved Places.
+          Drafts are not saved until you click Add to Itinerary.
         </p>
       </div>
 
@@ -304,14 +358,21 @@ export function ItinerarySuggesterWorkspace({
               </option>
             ))}
           </select>
-          {selectedTrip ? (
-            <p className="text-xs text-muted">
-              Reusing trip fields where available.{" "}
-              <Link className="text-brand underline" href={`/trips/${selectedTrip.id}`}>
-                Open trip itinerary
-              </Link>
-            </p>
-          ) : null}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="mode">Planning mode</Label>
+          <select
+            id="mode"
+            className="h-10 w-full rounded-[8px] border border-input bg-white px-3 text-sm"
+            value={mode}
+            onChange={(e) =>
+              setMode(e.target.value as "full" | "major" | "lesser")
+            }
+          >
+            <option value="full">Full day plan</option>
+            <option value="major">Major activities only</option>
+            <option value="lesser">Lesser activities (fill gaps)</option>
+          </select>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -360,95 +421,153 @@ export function ItinerarySuggesterWorkspace({
             id="must"
             value={mustDos}
             onChange={(e) => setMustDos(e.target.value)}
+            placeholder="Eiffel Tower, Louvre"
           />
+          <label className="flex items-center gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={requiredMustDos}
+              onChange={(e) => setRequiredMustDos(e.target.checked)}
+            />
+            Treat Must-Dos as required (flag if they cannot be scheduled)
+          </label>
         </div>
-        <Button disabled={loading} onClick={() => void generate()}>
+        {lists.length > 0 ? (
+          <div className="space-y-2">
+            <Label>Saved Places lists to include</Label>
+            <div className="flex flex-wrap gap-2">
+              {lists.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => toggleList(l.id)}
+                  className={`rounded-[8px] border px-3 py-1.5 text-sm ${
+                    selectedLists.has(l.id)
+                      ? "border-brand bg-brand text-white"
+                      : "border-border bg-white text-muted"
+                  }`}
+                >
+                  {l.name}
+                  {l.isShared ? " (shared)" : ""}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted">
+              <Link href="/saved-places" className="text-brand underline">
+                Manage Saved Places
+              </Link>
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted">
+            No Saved Places lists yet.{" "}
+            <Link href="/saved-places" className="text-brand underline">
+              Create one
+            </Link>
+          </p>
+        )}
+        <Button disabled={loading || !tripId} onClick={() => void generate()}>
           <Sparkles className="h-4 w-4" />
-          {loading ? "Generating…" : "Generate draft alternatives"}
+          {loading ? "Generating…" : "Generate drafts"}
         </Button>
       </section>
 
       {drafts.length > 0 ? (
-        <section className="grid gap-4 lg:grid-cols-[240px_1fr]">
-          <div className="space-y-2">
-            {drafts.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => setSelectedDraftId(d.id)}
-                className={`w-full rounded-[12px] border p-3 text-left ${
-                  selectedDraftId === d.id
-                    ? "border-brand bg-brand-light"
-                    : "border-border bg-card"
-                }`}
-              >
-                <p className="font-semibold">{d.label}</p>
-                <p className="mt-1 text-xs text-muted">{d.reason}</p>
-              </button>
-            ))}
-          </div>
-          {selectedDraft ? (
-            <div className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <h2 className="font-semibold">{selectedDraft.label}</h2>
-                  <p className="text-xs text-muted">{selectedDraft.reason}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    disabled={pending || !tripId}
-                    onClick={() => addDraftToTrip(selectedDraft, false)}
-                  >
-                    Add to Itinerary
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={pending || !tripId}
-                    onClick={() => addDraftToTrip(selectedDraft, true)}
-                  >
-                    Add must-dos only
-                  </Button>
-                </div>
-              </div>
-              {selectedDraft.notes ? (
-                <p className="mt-3 text-sm text-muted">{selectedDraft.notes}</p>
-              ) : null}
-              <div className="mt-4 space-y-4">
-                {selectedDraft.days.map((day) => (
-                  <div key={day.dayNumber}>
-                    <h3 className="text-sm font-semibold">
-                      Day {day.dayNumber}
-                      {day.title ? ` · ${day.title}` : ""}
-                    </h3>
-                    <ul className="mt-2 space-y-2">
-                      {day.items.map((item) => (
-                        <li
-                          key={`${day.dayNumber}-${item.title}`}
-                          className="rounded-[10px] border border-border px-3 py-2"
-                        >
-                          <p className="font-medium">{item.title}</p>
-                          {item.description ? (
-                            <p className="text-xs text-muted">{item.description}</p>
-                          ) : null}
-                          <p className="text-[11px] capitalize text-brand">
-                            {item.category}
-                            {item.locationName ? ` · ${item.locationName}` : ""}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {drafts.map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              onClick={() => setSelectedDraftId(d.id)}
+              className={`rounded-[12px] border p-3 text-left shadow-sm ${
+                selectedDraftId === d.id
+                  ? "border-brand bg-brand-light"
+                  : "border-border bg-card"
+              }`}
+            >
+              <p className="font-semibold">{d.label}</p>
+              <p className="mt-1 text-xs text-muted">{d.reason}</p>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {selectedDraft ? (
+        <section className="space-y-4">
+          {selectedDraft.notes ? (
+            <p className="text-sm text-muted">{selectedDraft.notes}</p>
+          ) : null}
+          {selectedDraft.excluded && selectedDraft.excluded.length > 0 ? (
+            <div className="rounded-[12px] border border-warning/40 bg-warning/5 p-3 text-sm">
+              <p className="font-semibold">Could not fit</p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {selectedDraft.excluded.map((e) => (
+                  <li key={`${e.title}-${e.reason}`}>
+                    <span className="font-medium">{e.title}</span> — {e.reason}
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           ) : null}
+          {selectedDraft.days.map((day) => (
+            <div key={day.dayNumber} className="space-y-2">
+              <h2 className="font-semibold">
+                {day.title || `Day ${day.dayNumber}`}
+              </h2>
+              <ul className="space-y-2">
+                {day.items.map((item, idx) => (
+                  <li
+                    key={`${day.dayNumber}-${idx}-${item.title}`}
+                    className="rounded-[12px] border border-border bg-card p-3 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium">{item.title}</p>
+                        {item.description ? (
+                          <p className="text-sm text-muted">{item.description}</p>
+                        ) : null}
+                        <p className="mt-1 text-xs text-brand">
+                          {[
+                            item.startTime,
+                            item.durationMinutes
+                              ? `${item.durationMinutes} min`
+                              : null,
+                            item.category,
+                            item.locationName,
+                            item.hoursStatus === "unknown"
+                              ? "hours unverified"
+                              : item.hoursStatus === "verified"
+                                ? "hours verified"
+                                : null,
+                            item.relevance,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          toggleLock(selectedDraft.id, day.dayNumber, idx)
+                        }
+                      >
+                        {item.locked ? "Locked" : "Lock"}
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <Button
+            disabled={pending}
+            onClick={() => addDraftToTrip(selectedDraft)}
+          >
+            {pending ? "Adding…" : "Add to Itinerary"}
+          </Button>
         </section>
-      ) : (
-        <div className="rounded-[12px] border border-dashed border-border bg-card px-4 py-10 text-center text-sm text-muted">
-          Draft alternatives will appear here. Nothing is written to a trip until
-          you confirm Add to Itinerary.
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }

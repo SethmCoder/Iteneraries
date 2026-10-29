@@ -1,14 +1,18 @@
 /**
- * Deterministic itinerary draft scaffolding when AI is unavailable.
- * Uses only user-provided must-dos / destination labels — never invents
- * flights, hotels, fares, or opening hours.
+ * Deterministic itinerary drafts when AI is unavailable.
+ * Uses scheduleTripDays — no Free-time padding spam; unscheduled gaps are labeled.
  */
+
+import { scheduleTripDays } from "@/lib/itinerary/schedule-day";
+import type { ResolvedPlace } from "@/lib/places/resolve";
 
 export type DraftItem = {
   title: string;
   description?: string;
   category: string;
   locationName?: string;
+  startTime?: string;
+  durationMinutes?: number;
 };
 
 export type DraftDay = {
@@ -23,25 +27,8 @@ export type DeterministicDraft = {
   reason: string;
   days: DraftDay[];
   notes?: string;
+  excluded?: Array<{ title: string; reason: string }>;
 };
-
-function dayCount(startDate?: string, endDate?: string): number {
-  if (!startDate || !endDate) return 3;
-  const a = Date.parse(startDate);
-  const b = Date.parse(endDate);
-  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return 3;
-  const days = Math.floor((b - a) / 86_400_000) + 1;
-  return Math.min(7, Math.max(1, days));
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  if (size <= 0) return [items];
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    out.push(items.slice(i, i + size));
-  }
-  return out.length ? out : [[]];
-}
 
 export function buildDeterministicDrafts(input: {
   destination: string;
@@ -49,97 +36,91 @@ export function buildDeterministicDrafts(input: {
   endDate?: string;
   mustDos?: string[];
   pace?: string;
+  saved?: ResolvedPlace[];
 }): DeterministicDraft[] {
   const dest = input.destination.trim() || "Destination";
   const musts = (input.mustDos ?? []).map((m) => m.trim()).filter(Boolean);
-  const daysN = dayCount(input.startDate, input.endDate);
-  const pace = input.pace ?? "balanced";
-  const perDay =
-    pace === "relaxed" ? 2 : pace === "packed" ? 4 : 3;
 
-  const placeholders: DraftItem[] = [
-    ...musts.map((m) => ({
-      title: m,
-      category: "must_do",
-      description: "User must-do — verify hours and tickets yourself.",
-      locationName: dest,
-    })),
-    {
-      title: `Explore ${dest}`,
-      category: "attraction",
-      description:
-        "Placeholder stop — replace with a verified place from the map or search.",
-      locationName: dest,
-    },
-    {
-      title: `Local meal in ${dest}`,
-      category: "restaurant",
-      description: "Unverified suggestion slot — pick a restaurant you trust.",
-      locationName: dest,
-    },
-  ];
-
-  while (placeholders.length < daysN * Math.max(1, perDay - 1)) {
-    placeholders.push({
-      title: `Free time / buffer in ${dest}`,
-      category: "flex",
-      description: "Buffer for travel, rest, or jet lag — not a booking.",
-      locationName: dest,
-    });
-  }
-
-  const groups = chunk(placeholders, perDay).slice(0, daysN);
-  while (groups.length < daysN) {
-    groups.push([
-      {
-        title: `Open day in ${dest}`,
-        category: "flex",
-        description: "No verified activities assigned — add from your trip map.",
-        locationName: dest,
-      },
-    ]);
-  }
-
-  const balancedDays: DraftDay[] = groups.map((items, i) => ({
-    dayNumber: i + 1,
-    title: `Day ${i + 1}`,
-    items,
+  const mustResolved: ResolvedPlace[] = musts.map((m) => ({
+    name: m,
+    address: `${m}, ${dest}`,
+    lat: null,
+    lon: null,
+    osmType: null,
+    osmId: null,
+    category: "must_do",
+    openingHoursRaw: null,
+    hoursStatus: "unknown",
+    estimatedDurationMinutes: 90,
+    durationIsEstimate: true,
+    sourceQuery: m,
   }));
 
-  const notes =
-    "Drafts are scaffolds from your inputs only. No flights, hotels, or prices were invented. Confirm every stop before booking.";
+  const scheduled = scheduleTripDays({
+    destination: dest,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    pace: (input.pace as "balanced") ?? "balanced",
+    mustDos: mustResolved.map((m) => ({ ...m, required: true })),
+    saved: input.saved ?? [],
+  });
 
-  const drafts: DeterministicDraft[] = [
+  const toDraftDays = (days: typeof scheduled.days): DraftDay[] =>
+    days.map((d) => ({
+      dayNumber: d.dayNumber,
+      title: d.title,
+      items: d.items.map((i) => ({
+        title: i.title,
+        description: i.description,
+        category: i.category,
+        locationName: i.locationName,
+        startTime: i.startTime,
+        durationMinutes: i.durationMinutes,
+      })),
+    }));
+
+  const notes =
+    "Drafts use Must-Dos and Saved Places only. No flights, hotels, or opening hours were invented. Confirm every stop before booking.";
+
+  return [
     {
       id: "balanced",
-      label: "Balanced scaffold",
-      reason: "Spreads must-dos and open slots across your trip dates.",
-      days: balancedDays,
+      label: "Balanced schedule",
+      reason: "Timed day plan from your Must-Dos (and lists when provided).",
+      days: toDraftDays(scheduled.days),
       notes,
-    },
-    {
-      id: "must-first",
-      label: "Must-dos first",
-      reason: "Front-loads your must-dos, then open exploration slots.",
-      days: balancedDays.map((d) => ({
-        ...d,
-        items: [...d.items].sort((a, b) =>
-          a.category === "must_do" ? -1 : b.category === "must_do" ? 1 : 0,
-        ),
-      })),
-      notes,
+      excluded: scheduled.excluded,
     },
     {
       id: "lighter",
       label: "Lighter days",
-      reason: "Fewer stops per day for a relaxed pace (still unverified places).",
-      days: balancedDays.map((d) => ({
-        ...d,
-        items: d.items.slice(0, Math.max(1, Math.ceil(d.items.length / 2))),
-      })),
+      reason: "Fewer stops per day.",
+      days: toDraftDays(
+        scheduled.days.map((d) => ({
+          ...d,
+          items: d.items.filter(
+            (i, idx) => i.source === "meal" || idx < Math.ceil(d.items.length / 2),
+          ),
+        })),
+      ),
       notes,
+      excluded: scheduled.excluded,
+    },
+    {
+      id: "must-first",
+      label: "Must-dos first",
+      reason: "Front-loads Must-Do stops each day.",
+      days: toDraftDays(
+        scheduled.days.map((d) => ({
+          ...d,
+          items: [...d.items].sort((a, b) => {
+            const score = (s: string) => (s === "must_do" ? 0 : 1);
+            return score(a.source) - score(b.source);
+          }),
+        })),
+      ),
+      notes,
+      excluded: scheduled.excluded,
     },
   ];
-
-  return drafts;
 }

@@ -1,0 +1,1127 @@
+-- Waypoint compiled schema (reference / fresh bootstrap).
+-- Migrations in supabase/migrations/ remain canonical for existing projects.
+-- Generated from initial + incremental migrations; do not apply on top of an already-migrated DB without review.
+
+-- >>> BEGIN 20241027000000_initial_schema.sql
+-- Waypoint full schema (single migration — never applied incrementally)
+-- Profiles, trips, itinerary, friends, email import, preferences,
+-- transport, flight booker / loyalty, account billing, RLS, storage, realtime
+
+create extension if not exists "pgcrypto";
+
+-- ---------------------------------------------------------------------------
+-- Core tables
+-- ---------------------------------------------------------------------------
+
+create table public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  username text not null,
+  display_name text,
+  avatar_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint profiles_username_format check (username ~ '^[a-zA-Z0-9_]{3,30}$'),
+  constraint profiles_username_unique unique (username)
+);
+
+create table public.trips (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references public.profiles (id) on delete cascade,
+  name text,
+  destination_name text,
+  destination_latitude double precision,
+  destination_longitude double precision,
+  destination_image_url text,
+  destination_image_attribution text,
+  start_date date,
+  end_date date,
+  timezone text,
+  status text not null default 'planned'
+    check (status in ('planned', 'active', 'completed', 'cancelled')),
+  email_slug text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint trips_date_order check (
+    start_date is null or end_date is null or end_date >= start_date
+  )
+);
+
+create table public.trip_members (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  role text not null check (role in ('owner', 'editor', 'viewer')),
+  invited_by uuid references public.profiles (id) on delete set null,
+  invitation_status text not null default 'accepted'
+    check (invitation_status in ('pending', 'accepted', 'declined', 'removed')),
+  created_at timestamptz not null default now(),
+  constraint trip_members_unique unique (trip_id, user_id)
+);
+
+create table public.itinerary_items (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips (id) on delete cascade,
+  created_by uuid not null references public.profiles (id) on delete restrict,
+  item_type text not null
+    check (item_type in ('place', 'flight', 'hotel', 'train', 'ground_transport', 'other')),
+  title text not null,
+  description text,
+  location_name text,
+  address text,
+  latitude double precision,
+  longitude double precision,
+  start_at timestamptz,
+  end_at timestamptz,
+  timezone text,
+  sort_order integer not null default 0,
+  booking_reference text,
+  source_url text,
+  thumbnail_url text,
+  details jsonb not null default '{}'::jsonb,
+  osm_id text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.friends (
+  id uuid primary key default gen_random_uuid(),
+  requester_id uuid not null references public.profiles (id) on delete cascade,
+  recipient_id uuid not null references public.profiles (id) on delete cascade,
+  status text not null default 'pending'
+    check (status in ('pending', 'accepted', 'rejected', 'blocked')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint friends_no_self check (requester_id <> recipient_id),
+  constraint friends_pair_unique unique (requester_id, recipient_id)
+);
+
+create table public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  actor_id uuid references public.profiles (id) on delete set null,
+  type text not null,
+  message text not null,
+  related_trip_id uuid references public.trips (id) on delete set null,
+  related_item_id uuid references public.itinerary_items (id) on delete set null,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table public.trip_suggestions (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips (id) on delete cascade,
+  created_by uuid not null references public.profiles (id) on delete cascade,
+  suggestion_data jsonb not null,
+  status text not null default 'pending'
+    check (status in ('pending', 'accepted', 'dismissed')),
+  created_at timestamptz not null default now()
+);
+
+create table public.imported_emails (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  provider_message_id text not null,
+  status text not null default 'received'
+    check (status in ('received', 'processing', 'ready_for_review', 'confirmed', 'rejected', 'error')),
+  processing_error text,
+  subject text,
+  from_address text,
+  normalized_booking_key text,
+  created_at timestamptz not null default now(),
+  processed_at timestamptz,
+  constraint imported_emails_provider_unique unique (provider_message_id)
+);
+
+create table public.reservation_reviews (
+  id uuid primary key default gen_random_uuid(),
+  imported_email_id uuid not null references public.imported_emails (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  trip_id uuid references public.trips (id) on delete set null,
+  extracted_data jsonb not null,
+  status text not null default 'pending'
+    check (status in ('pending', 'confirmed', 'rejected')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.user_preferences (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  preferred_transport_modes text[] not null default array['walking', 'transit']::text[],
+  travel_pace text not null default 'moderate'
+    check (travel_pace in ('relaxed', 'moderate', 'packed')),
+  interests text[] not null default '{}'::text[],
+  distance_unit text not null default 'km' check (distance_unit in ('km', 'mi')),
+  timezone_display text not null default 'destination'
+    check (timezone_display in ('destination', 'home', 'utc')),
+  auto_confirm_imports boolean not null default false,
+  award_check_enabled boolean not null default true,
+  award_check_timezone text not null default 'UTC',
+  award_check_start_minute integer not null default 1080
+    check (award_check_start_minute >= 0 and award_check_start_minute < 1440),
+  award_check_end_minute integer not null default 1260
+    check (award_check_end_minute >= 0 and award_check_end_minute < 1440),
+  award_approve_to_book boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.transport_segments (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips (id) on delete cascade,
+  from_item_id uuid not null references public.itinerary_items (id) on delete cascade,
+  to_item_id uuid not null references public.itinerary_items (id) on delete cascade,
+  mode text not null check (mode in ('car', 'walking', 'bicycle', 'transit')),
+  duration_seconds integer,
+  distance_meters double precision,
+  geometry jsonb,
+  is_manual boolean not null default false,
+  manual_duration_minutes integer,
+  unavailable_reason text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint transport_segments_pair unique (trip_id, from_item_id, to_item_id)
+);
+
+create table public.email_aliases (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  alias_token text not null unique,
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Account billing (free renew now; Stripe-ready)
+-- ---------------------------------------------------------------------------
+
+create table public.account_billing (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  plan text not null default 'free' check (plan in ('free', 'pro')),
+  status text not null default 'active'
+    check (status in ('active', 'expired', 'canceled', 'past_due')),
+  billing_provider text not null default 'manual'
+    check (billing_provider in ('none', 'manual', 'stripe')),
+  current_period_start timestamptz not null default now(),
+  current_period_end timestamptz not null default (now() + interval '30 days'),
+  delete_after timestamptz,
+  last_renewed_at timestamptz,
+  reminder_stage text not null default 'none'
+    check (reminder_stage in ('none', 'd7', 'd1', 'expired')),
+  last_reminder_at timestamptz,
+  stripe_customer_id text,
+  stripe_subscription_id text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Flight Booker / loyalty
+-- ---------------------------------------------------------------------------
+
+create table public.loyalty_balances (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  program text not null,
+  balance integer not null default 0 check (balance >= 0),
+  currency_label text not null default 'points',
+  source text not null default 'manual' check (source in ('manual', 'verified')),
+  last_verified_at timestamptz,
+  external_account_id text,
+  provider text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, program)
+);
+
+create table public.loyalty_connections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  provider text not null check (provider in ('awardwallet', 'awardwallet_parse')),
+  external_user_id text not null,
+  access_level text not null default 'read_balances',
+  status text not null default 'connected'
+    check (status in ('connected', 'disconnected', 'error')),
+  last_synced_at timestamptz,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, provider)
+);
+
+create table public.award_searches (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  trip_id uuid references public.trips (id) on delete set null,
+  origin text not null,
+  destination text not null,
+  trip_type text not null default 'one_way' check (trip_type in ('one_way', 'round_trip')),
+  depart_date date,
+  depart_date_end date,
+  return_date date,
+  return_date_end date,
+  passengers integer not null default 1 check (passengers >= 1 and passengers <= 9),
+  cabin text not null default 'economy'
+    check (cabin in ('economy', 'premium_economy', 'business', 'first')),
+  max_points_per_passenger integer,
+  max_points_total integer,
+  max_cash_fees numeric(12, 2),
+  preferred_program text,
+  status text not null default 'setup_required'
+    check (status in ('monitoring', 'match_found', 'paused', 'setup_required')),
+  notify_on_match boolean not null default true,
+  require_booking_approval boolean not null default true,
+  poll_interval_minutes integer not null default 360 check (poll_interval_minutes >= 60),
+  last_checked_at timestamptz,
+  last_notified_fingerprint text,
+  paused_at timestamptz,
+  preferences jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.award_search_programs (
+  search_id uuid not null references public.award_searches (id) on delete cascade,
+  program text not null,
+  primary key (search_id, program)
+);
+
+create table public.award_results (
+  id uuid primary key default gen_random_uuid(),
+  search_id uuid not null references public.award_searches (id) on delete cascade,
+  airline text,
+  flight_numbers text,
+  origin_airport text not null,
+  destination_airport text not null,
+  depart_at timestamptz,
+  arrive_at timestamptz,
+  timezone text,
+  duration_minutes integer,
+  stops integer not null default 0,
+  cabin text,
+  points_per_passenger integer,
+  points_total integer,
+  taxes_fees numeric(12, 2),
+  currency text default 'USD',
+  loyalty_program text,
+  booking_url text,
+  availability_status text not null default 'unverified'
+    check (availability_status in ('confirmed', 'estimated', 'stale', 'unverified')),
+  provider text not null default 'seats_aero',
+  provider_result_id text,
+  fingerprint text not null,
+  compromises text[] not null default '{}',
+  raw jsonb not null default '{}'::jsonb,
+  checked_at timestamptz not null default now(),
+  user_approved_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (search_id, fingerprint)
+);
+
+-- ---------------------------------------------------------------------------
+-- Indexes
+-- ---------------------------------------------------------------------------
+
+create index trips_owner_id_idx on public.trips (owner_id);
+create unique index trips_email_slug_unique
+  on public.trips (email_slug)
+  where email_slug is not null;
+create index trip_members_user_id_idx on public.trip_members (user_id);
+create index trip_members_trip_id_idx on public.trip_members (trip_id);
+create index itinerary_items_trip_sort_idx on public.itinerary_items (trip_id, sort_order, start_at);
+create index itinerary_items_osm_id_idx on public.itinerary_items (osm_id) where osm_id is not null;
+create index friends_requester_idx on public.friends (requester_id);
+create index friends_recipient_idx on public.friends (recipient_id);
+create index notifications_user_unread_idx on public.notifications (user_id, created_at desc) where read_at is null;
+create index notifications_user_idx on public.notifications (user_id, created_at desc);
+create index profiles_username_lower_idx on public.profiles (lower(username));
+create index imported_emails_user_idx on public.imported_emails (user_id, created_at desc);
+create index imported_emails_booking_idx on public.imported_emails (user_id, normalized_booking_key)
+  where normalized_booking_key is not null;
+create index account_billing_period_end_idx on public.account_billing (current_period_end);
+create index account_billing_status_idx on public.account_billing (status);
+create index award_searches_user_idx on public.award_searches (user_id);
+create index award_searches_status_idx on public.award_searches (status);
+create index award_results_search_idx on public.award_results (search_id);
+create index loyalty_balances_user_idx on public.loyalty_balances (user_id);
+create index loyalty_connections_user_idx on public.loyalty_connections (user_id);
+
+-- ---------------------------------------------------------------------------
+-- Helpers / triggers
+-- ---------------------------------------------------------------------------
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+create trigger profiles_updated_at before update on public.profiles
+  for each row execute function public.set_updated_at();
+create trigger trips_updated_at before update on public.trips
+  for each row execute function public.set_updated_at();
+create trigger itinerary_items_updated_at before update on public.itinerary_items
+  for each row execute function public.set_updated_at();
+create trigger friends_updated_at before update on public.friends
+  for each row execute function public.set_updated_at();
+create trigger user_preferences_updated_at before update on public.user_preferences
+  for each row execute function public.set_updated_at();
+create trigger reservation_reviews_updated_at before update on public.reservation_reviews
+  for each row execute function public.set_updated_at();
+create trigger transport_segments_updated_at before update on public.transport_segments
+  for each row execute function public.set_updated_at();
+create trigger account_billing_set_updated_at before update on public.account_billing
+  for each row execute function public.set_updated_at();
+create trigger loyalty_balances_set_updated_at before update on public.loyalty_balances
+  for each row execute function public.set_updated_at();
+create trigger loyalty_connections_set_updated_at before update on public.loyalty_connections
+  for each row execute function public.set_updated_at();
+create trigger award_searches_set_updated_at before update on public.award_searches
+  for each row execute function public.set_updated_at();
+
+-- Auth signup → profile + preferences + email alias + billing
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uname text;
+  alias text;
+begin
+  uname := coalesce(
+    new.raw_user_meta_data->>'username',
+    split_part(new.email, '@', 1)
+  );
+  uname := regexp_replace(uname, '[^a-zA-Z0-9_]', '_', 'g');
+  if length(uname) < 3 then
+    uname := uname || '_user';
+  end if;
+  uname := left(uname, 30);
+
+  while exists (select 1 from public.profiles where username = uname) loop
+    uname := left(uname, 24) || '_' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 5);
+  end loop;
+
+  insert into public.profiles (id, username, display_name)
+  values (new.id, uname, coalesce(new.raw_user_meta_data->>'display_name', uname));
+
+  insert into public.user_preferences (user_id) values (new.id);
+
+  alias := replace(gen_random_uuid()::text, '-', '');
+  insert into public.email_aliases (user_id, alias_token) values (new.id, alias);
+
+  insert into public.account_billing (
+    user_id, plan, status, billing_provider,
+    current_period_start, current_period_end
+  ) values (
+    new.id, 'free', 'active', 'manual',
+    now(), now() + interval '30 days'
+  );
+
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Membership helpers for RLS
+create or replace function public.is_trip_member(p_trip_id uuid, p_statuses text[] default array['accepted'])
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.trip_members tm
+    where tm.trip_id = p_trip_id
+      and tm.user_id = auth.uid()
+      and tm.invitation_status = any (p_statuses)
+  );
+$$;
+
+create or replace function public.trip_role(p_trip_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select tm.role from public.trip_members tm
+  where tm.trip_id = p_trip_id
+    and tm.user_id = auth.uid()
+    and tm.invitation_status = 'accepted'
+  limit 1;
+$$;
+
+create or replace function public.can_edit_trip(p_trip_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(public.trip_role(p_trip_id) in ('owner', 'editor'), false);
+$$;
+
+create or replace function public.is_trip_owner(p_trip_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(public.trip_role(p_trip_id) = 'owner', false);
+$$;
+
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+
+alter table public.profiles enable row level security;
+alter table public.trips enable row level security;
+alter table public.trip_members enable row level security;
+alter table public.itinerary_items enable row level security;
+alter table public.friends enable row level security;
+alter table public.notifications enable row level security;
+alter table public.trip_suggestions enable row level security;
+alter table public.imported_emails enable row level security;
+alter table public.reservation_reviews enable row level security;
+alter table public.user_preferences enable row level security;
+alter table public.transport_segments enable row level security;
+alter table public.email_aliases enable row level security;
+alter table public.account_billing enable row level security;
+alter table public.loyalty_balances enable row level security;
+alter table public.loyalty_connections enable row level security;
+alter table public.award_searches enable row level security;
+alter table public.award_search_programs enable row level security;
+alter table public.award_results enable row level security;
+
+-- Profiles
+create policy "Profiles are viewable by authenticated users"
+  on public.profiles for select to authenticated
+  using (true);
+
+create policy "Users update own profile"
+  on public.profiles for update to authenticated
+  using (id = auth.uid())
+  with check (id = auth.uid());
+
+-- Trips
+create policy "Members can view accepted trips"
+  on public.trips for select to authenticated
+  using (public.is_trip_member(id));
+
+create policy "Authenticated users can create trips they own"
+  on public.trips for insert to authenticated
+  with check (owner_id = auth.uid());
+
+create policy "Editors and owners can update trips"
+  on public.trips for update to authenticated
+  using (public.can_edit_trip(id))
+  with check (public.can_edit_trip(id));
+
+create policy "Owners can delete trips"
+  on public.trips for delete to authenticated
+  using (public.is_trip_owner(id));
+
+-- Trip members
+create policy "Members can view membership of their trips"
+  on public.trip_members for select to authenticated
+  using (
+    user_id = auth.uid()
+    or public.is_trip_member(trip_id)
+    or public.is_trip_member(trip_id, array['pending', 'accepted'])
+  );
+
+create policy "Owners can insert members"
+  on public.trip_members for insert to authenticated
+  with check (
+    (role = 'owner' and user_id = auth.uid() and invited_by = auth.uid())
+    or public.is_trip_owner(trip_id)
+  );
+
+create policy "Owners manage members; invitees update own invitation"
+  on public.trip_members for update to authenticated
+  using (
+    public.is_trip_owner(trip_id)
+    or (user_id = auth.uid() and invitation_status = 'pending')
+  )
+  with check (
+    public.is_trip_owner(trip_id)
+    or (user_id = auth.uid())
+  );
+
+create policy "Owners can remove members"
+  on public.trip_members for delete to authenticated
+  using (public.is_trip_owner(trip_id) or user_id = auth.uid());
+
+-- Itinerary items
+create policy "Members can view itinerary items"
+  on public.itinerary_items for select to authenticated
+  using (public.is_trip_member(trip_id));
+
+create policy "Editors can insert itinerary items"
+  on public.itinerary_items for insert to authenticated
+  with check (public.can_edit_trip(trip_id) and created_by = auth.uid());
+
+create policy "Editors can update itinerary items"
+  on public.itinerary_items for update to authenticated
+  using (public.can_edit_trip(trip_id))
+  with check (public.can_edit_trip(trip_id));
+
+create policy "Editors can delete itinerary items"
+  on public.itinerary_items for delete to authenticated
+  using (public.can_edit_trip(trip_id));
+
+-- Friends
+create policy "Participants view friendships"
+  on public.friends for select to authenticated
+  using (requester_id = auth.uid() or recipient_id = auth.uid());
+
+create policy "Users send friend requests"
+  on public.friends for insert to authenticated
+  with check (requester_id = auth.uid() and status = 'pending');
+
+create policy "Participants update friendships"
+  on public.friends for update to authenticated
+  using (requester_id = auth.uid() or recipient_id = auth.uid())
+  with check (requester_id = auth.uid() or recipient_id = auth.uid());
+
+create policy "Participants delete friendships"
+  on public.friends for delete to authenticated
+  using (requester_id = auth.uid() or recipient_id = auth.uid());
+
+-- Notifications
+create policy "Users view own notifications"
+  on public.notifications for select to authenticated
+  using (user_id = auth.uid());
+
+create policy "Users update own notifications"
+  on public.notifications for update to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Authenticated can insert notifications for others via app"
+  on public.notifications for insert to authenticated
+  with check (true);
+
+-- Suggestions
+create policy "Members view suggestions"
+  on public.trip_suggestions for select to authenticated
+  using (public.is_trip_member(trip_id));
+
+create policy "Editors create suggestions"
+  on public.trip_suggestions for insert to authenticated
+  with check (public.can_edit_trip(trip_id) and created_by = auth.uid());
+
+create policy "Editors update suggestions"
+  on public.trip_suggestions for update to authenticated
+  using (public.can_edit_trip(trip_id))
+  with check (public.can_edit_trip(trip_id));
+
+-- Imported emails / reviews
+create policy "Users manage own imported emails"
+  on public.imported_emails for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Users manage own reservation reviews"
+  on public.reservation_reviews for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+-- Preferences
+create policy "Users manage own preferences"
+  on public.user_preferences for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+-- Transport segments
+create policy "Members view transport segments"
+  on public.transport_segments for select to authenticated
+  using (public.is_trip_member(trip_id));
+
+create policy "Editors manage transport segments"
+  on public.transport_segments for all to authenticated
+  using (public.can_edit_trip(trip_id))
+  with check (public.can_edit_trip(trip_id));
+
+-- Email aliases
+create policy "Users view own email alias"
+  on public.email_aliases for select to authenticated
+  using (user_id = auth.uid());
+
+-- Billing
+create policy "Users read own billing"
+  on public.account_billing for select to authenticated
+  using (user_id = auth.uid());
+
+create policy "Users update own billing renew fields"
+  on public.account_billing for update to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+-- Loyalty / awards
+create policy "Users manage own loyalty balances"
+  on public.loyalty_balances for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Users manage own loyalty connections"
+  on public.loyalty_connections for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Users manage own award searches"
+  on public.award_searches for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Users manage own award search programs"
+  on public.award_search_programs for all to authenticated
+  using (
+    exists (
+      select 1 from public.award_searches s
+      where s.id = search_id and s.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.award_searches s
+      where s.id = search_id and s.user_id = auth.uid()
+    )
+  );
+
+create policy "Users manage own award results"
+  on public.award_results for all to authenticated
+  using (
+    exists (
+      select 1 from public.award_searches s
+      where s.id = search_id and s.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.award_searches s
+      where s.id = search_id and s.user_id = auth.uid()
+    )
+  );
+
+-- ---------------------------------------------------------------------------
+-- Storage (avatars)
+-- ---------------------------------------------------------------------------
+
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+create policy "Avatar images are publicly readable"
+  on storage.objects for select
+  using (bucket_id = 'avatars');
+
+create policy "Users upload own avatar"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+create policy "Users update own avatar"
+  on storage.objects for update to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+create policy "Users delete own avatar"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- ---------------------------------------------------------------------------
+-- Realtime
+-- ---------------------------------------------------------------------------
+
+alter publication supabase_realtime add table public.notifications;
+
+-- >>> END 20241027000000_initial_schema.sql
+
+-- >>> BEGIN 20261027200000_pending_bookings.sql
+-- Trip-linked pending flights and hotels (booking checklist)
+
+create table public.pending_flights (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  trip_id uuid not null references public.trips (id) on delete cascade,
+  origin text not null,
+  destination text not null,
+  depart_date date,
+  return_date date,
+  passengers integer not null default 1 check (passengers >= 1 and passengers <= 9),
+  airline text,
+  booking_status text not null default 'needs_booking'
+    check (booking_status in ('needs_booking', 'in_progress', 'booked', 'skipped')),
+  booking_url text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.pending_hotels (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  trip_id uuid not null references public.trips (id) on delete cascade,
+  hotel_name text not null,
+  location text,
+  check_in date,
+  check_out date,
+  rooms integer not null default 1 check (rooms >= 1 and rooms <= 20),
+  guests integer not null default 1 check (guests >= 1 and guests <= 30),
+  booking_status text not null default 'needs_booking'
+    check (booking_status in ('needs_booking', 'in_progress', 'booked', 'skipped')),
+  booking_url text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index pending_flights_user_idx on public.pending_flights (user_id);
+create index pending_flights_trip_idx on public.pending_flights (trip_id);
+create index pending_hotels_user_idx on public.pending_hotels (user_id);
+create index pending_hotels_trip_idx on public.pending_hotels (trip_id);
+
+create trigger pending_flights_set_updated_at
+  before update on public.pending_flights
+  for each row execute function public.set_updated_at();
+
+create trigger pending_hotels_set_updated_at
+  before update on public.pending_hotels
+  for each row execute function public.set_updated_at();
+
+alter table public.pending_flights enable row level security;
+alter table public.pending_hotels enable row level security;
+
+create policy "Users manage own pending flights"
+  on public.pending_flights for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Users manage own pending hotels"
+  on public.pending_hotels for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+-- >>> END 20261027200000_pending_bookings.sql
+
+-- >>> BEGIN 20261029120000_pending_cars_activities.sql
+-- Additive pending cars and activities (booking checklist)
+
+create table public.pending_cars (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  trip_id uuid not null references public.trips (id) on delete cascade,
+  provider text,
+  pickup_location text,
+  dropoff_location text,
+  pickup_at timestamptz,
+  dropoff_at timestamptz,
+  booking_status text not null default 'needs_booking'
+    check (booking_status in ('needs_booking', 'in_progress', 'booked', 'skipped')),
+  booking_url text,
+  confirmation_number text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.pending_activities (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  trip_id uuid not null references public.trips (id) on delete cascade,
+  title text not null,
+  activity_type text not null default 'other'
+    check (activity_type in (
+      'restaurant', 'meeting', 'transportation', 'attraction',
+      'hotel', 'flight', 'other'
+    )),
+  location text,
+  start_at timestamptz,
+  end_at timestamptz,
+  booking_status text not null default 'needs_booking'
+    check (booking_status in ('needs_booking', 'in_progress', 'booked', 'skipped')),
+  booking_url text,
+  confirmation_number text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index pending_cars_user_idx on public.pending_cars (user_id);
+create index pending_cars_trip_idx on public.pending_cars (trip_id);
+create index pending_activities_user_idx on public.pending_activities (user_id);
+create index pending_activities_trip_idx on public.pending_activities (trip_id);
+
+create trigger pending_cars_set_updated_at
+  before update on public.pending_cars
+  for each row execute function public.set_updated_at();
+
+create trigger pending_activities_set_updated_at
+  before update on public.pending_activities
+  for each row execute function public.set_updated_at();
+
+alter table public.pending_cars enable row level security;
+alter table public.pending_activities enable row level security;
+
+create policy "Users manage own pending cars"
+  on public.pending_cars for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy "Users manage own pending activities"
+  on public.pending_activities for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+-- Optional flight number on pending flights (additive)
+alter table public.pending_flights
+  add column if not exists flight_number text;
+
+-- >>> END 20261029120000_pending_cars_activities.sql
+
+-- >>> BEGIN 20261029140000_trip_planning_profile.sql
+-- Additive trip planning preferences (adaptive setup). Non-destructive.
+alter table public.trips
+  add column if not exists planning_profile jsonb not null default '{}'::jsonb;
+
+-- >>> END 20261029140000_trip_planning_profile.sql
+
+-- >>> BEGIN 20261029150000_saved_places_and_emails.sql
+-- Saved Places lists + sharing, and raw forwarded-email storage.
+
+-- Canonical places (dedupe by OSM id when present)
+create table if not exists public.places (
+  id uuid primary key default gen_random_uuid(),
+  osm_type text,
+  osm_id text,
+  name text not null,
+  latitude double precision,
+  longitude double precision,
+  address text,
+  category text,
+  opening_hours_raw text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint places_osm_unique unique (osm_type, osm_id)
+);
+
+create index if not exists places_name_idx on public.places (name);
+
+create table if not exists public.place_lists (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references public.profiles (id) on delete cascade,
+  name text not null,
+  description text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists place_lists_owner_idx on public.place_lists (owner_id);
+
+create table if not exists public.place_list_items (
+  id uuid primary key default gen_random_uuid(),
+  list_id uuid not null references public.place_lists (id) on delete cascade,
+  place_id uuid not null references public.places (id) on delete cascade,
+  notes text,
+  source_url text,
+  added_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint place_list_items_unique unique (list_id, place_id)
+);
+
+create index if not exists place_list_items_list_idx on public.place_list_items (list_id);
+create index if not exists place_list_items_place_idx on public.place_list_items (place_id);
+
+create table if not exists public.place_list_shares (
+  id uuid primary key default gen_random_uuid(),
+  list_id uuid not null references public.place_lists (id) on delete cascade,
+  friend_user_id uuid not null references public.profiles (id) on delete cascade,
+  permission text not null default 'view'
+    check (permission in ('view', 'edit')),
+  created_at timestamptz not null default now(),
+  constraint place_list_shares_unique unique (list_id, friend_user_id)
+);
+
+create index if not exists place_list_shares_friend_idx
+  on public.place_list_shares (friend_user_id);
+
+-- Raw email body + AI summary for forwarded inbox
+alter table public.imported_emails
+  add column if not exists raw_text text,
+  add column if not exists raw_html text,
+  add column if not exists ai_summary text;
+
+alter table public.reservation_reviews
+  add column if not exists match_reason text,
+  add column if not exists matched_trip_confidence double precision;
+
+-- Helpers for list access
+create or replace function public.owns_place_list(p_list_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.place_lists
+    where id = p_list_id and owner_id = auth.uid()
+  );
+$$;
+
+create or replace function public.can_view_place_list(p_list_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.place_lists where id = p_list_id and owner_id = auth.uid()
+  )
+  or exists (
+    select 1 from public.place_list_shares
+    where list_id = p_list_id and friend_user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.can_edit_place_list(p_list_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.place_lists where id = p_list_id and owner_id = auth.uid()
+  )
+  or exists (
+    select 1 from public.place_list_shares
+    where list_id = p_list_id
+      and friend_user_id = auth.uid()
+      and permission = 'edit'
+  );
+$$;
+
+create or replace function public.are_accepted_friends(a uuid, b uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.friends
+    where status = 'accepted'
+      and (
+        (requester_id = a and recipient_id = b)
+        or (requester_id = b and recipient_id = a)
+      )
+  );
+$$;
+
+alter table public.places enable row level security;
+alter table public.place_lists enable row level security;
+alter table public.place_list_items enable row level security;
+alter table public.place_list_shares enable row level security;
+
+-- Places: readable if referenced by a list the user can view; insertable by authenticated
+create policy "Users read places on accessible lists"
+  on public.places for select to authenticated
+  using (
+    exists (
+      select 1
+      from public.place_list_items i
+      where i.place_id = places.id
+        and public.can_view_place_list(i.list_id)
+    )
+    or not exists (
+      select 1 from public.place_list_items i where i.place_id = places.id
+    )
+  );
+
+create policy "Authenticated insert places"
+  on public.places for insert to authenticated
+  with check (true);
+
+create policy "Authenticated update places they can edit via lists"
+  on public.places for update to authenticated
+  using (
+    exists (
+      select 1 from public.place_list_items i
+      where i.place_id = places.id and public.can_edit_place_list(i.list_id)
+    )
+    or not exists (
+      select 1 from public.place_list_items i where i.place_id = places.id
+    )
+  )
+  with check (true);
+
+-- Lists
+create policy "Owners manage own lists"
+  on public.place_lists for all to authenticated
+  using (owner_id = auth.uid())
+  with check (owner_id = auth.uid());
+
+create policy "Shared users view lists"
+  on public.place_lists for select to authenticated
+  using (public.can_view_place_list(id));
+
+-- List items
+create policy "View items on accessible lists"
+  on public.place_list_items for select to authenticated
+  using (public.can_view_place_list(list_id));
+
+create policy "Edit items on editable lists"
+  on public.place_list_items for insert to authenticated
+  with check (public.can_edit_place_list(list_id));
+
+create policy "Update items on editable lists"
+  on public.place_list_items for update to authenticated
+  using (public.can_edit_place_list(list_id))
+  with check (public.can_edit_place_list(list_id));
+
+create policy "Delete items on editable lists"
+  on public.place_list_items for delete to authenticated
+  using (public.can_edit_place_list(list_id));
+
+-- Shares: owner manages; friend can see own shares
+create policy "Owners manage list shares"
+  on public.place_list_shares for all to authenticated
+  using (public.owns_place_list(list_id))
+  with check (
+    public.owns_place_list(list_id)
+    and public.are_accepted_friends(auth.uid(), friend_user_id)
+  );
+
+create policy "Friends view shares to them"
+  on public.place_list_shares for select to authenticated
+  using (friend_user_id = auth.uid());
+
+create trigger places_updated_at before update on public.places
+  for each row execute function public.set_updated_at();
+
+create trigger place_lists_updated_at before update on public.place_lists
+  for each row execute function public.set_updated_at();
+
+-- >>> END 20261029150000_saved_places_and_emails.sql
+

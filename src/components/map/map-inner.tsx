@@ -301,7 +301,7 @@ export default function MapInner({
             key={`${route.id}-${baseLayer}`}
             positions={route.positions}
             pathOptions={{
-              color: isSatellite ? "#EEEEFF" : "#1616C9",
+              color: isSatellite ? "#DDF1F2" : "#176B87",
               weight: isSatellite ? 6 : 5,
               opacity: 0.9,
               lineJoin: "round",
@@ -310,7 +310,7 @@ export default function MapInner({
           >
             {route.label ? (
               <Popup>
-                <p className="text-sm font-medium text-[#1F2937]">{route.label}</p>
+                <p className="text-sm font-medium text-foreground">{route.label}</p>
               </Popup>
             ) : null}
           </Polyline>
@@ -331,7 +331,7 @@ export default function MapInner({
                   <p className="text-xs text-[#6B7280]">{pin.subtitle}</p>
                 ) : null}
                 {pin.href ? (
-                  <Link href={pin.href} className="text-xs font-medium text-[#1616C9]">
+                  <Link href={pin.href} className="text-xs font-medium text-brand">
                     Open itinerary
                   </Link>
                 ) : null}

@@ -4,16 +4,19 @@
 @import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
 :root {
-  --brand: #1616c9;
-  --brand-hover: #1010a3;
-  --brand-light: #eeeeff;
-  --page-bg: #f7f8fc;
+  /* Ocean Blue + Amber + Mist */
+  --brand: #176b87;
+  --brand-hover: #12566d;
+  --brand-light: #ddf1f2;
+  --accent: #e9b44c;
+  --accent-foreground: #24343b;
+  --page-bg: #f3f8fa;
   --card: #ffffff;
-  --text: #1f2937;
-  --text-secondary: #6b7280;
-  --border: #e5e7eb;
-  --input-border: #d1d5db;
-  --focus: #818cf8;
+  --text: #24343b;
+  --text-secondary: #647780;
+  --border: #dce7ea;
+  --input-border: #dce7ea;
+  --focus: #48a6b8;
   --success: #15803d;
   --warning: #b45309;
   --destructive: #dc2626;
@@ -24,16 +27,18 @@
 }
 
 html.dark {
-  --brand: #6b6bf0;
-  --brand-hover: #8181f5;
-  --brand-light: #1e1e3a;
-  --page-bg: #0f1117;
-  --card: #181b24;
-  --text: #f3f4f6;
-  --text-secondary: #9ca3af;
-  --border: #2d3340;
-  --input-border: #3f4654;
-  --focus: #818cf8;
+  --brand: #48a6b8;
+  --brand-hover: #6bb8c6;
+  --brand-light: #1a3038;
+  --accent: #e9b44c;
+  --accent-foreground: #0f1417;
+  --page-bg: #0f1417;
+  --card: #182228;
+  --text: #e8f0f2;
+  --text-secondary: #94a8b0;
+  --border: #2a3a40;
+  --input-border: #3a4c54;
+  --focus: #48a6b8;
   --success: #4ade80;
   --warning: #fbbf24;
   --destructive: #f87171;
@@ -48,6 +53,8 @@ html.dark {
   --color-brand: var(--brand);
   --color-brand-hover: var(--brand-hover);
   --color-brand-light: var(--brand-light);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
   --color-card: var(--card);
   --color-muted: var(--text-secondary);
   --color-border: var(--border);
@@ -70,6 +77,16 @@ body {
   color: var(--text);
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   font-weight: 400;
+  overflow-x: hidden;
+}
+
+/* Hide scrollbars on intentional horizontal chip/tab rows without killing scroll */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 h1,

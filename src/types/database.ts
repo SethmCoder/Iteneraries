@@ -366,3 +366,77 @@ export type TransportSegment = {
   created_at: string;
   updated_at: string;
 };
+
+export type Place = {
+  id: string;
+  osm_type: string | null;
+  osm_id: string | null;
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+  category: string | null;
+  opening_hours_raw: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlaceList = {
+  id: string;
+  owner_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlaceListItem = {
+  id: string;
+  list_id: string;
+  place_id: string;
+  notes: string | null;
+  source_url: string | null;
+  added_by: string | null;
+  created_at: string;
+  places?: Place | null;
+};
+
+export type PlaceListSharePermission = "view" | "edit";
+
+export type PlaceListShare = {
+  id: string;
+  list_id: string;
+  friend_user_id: string;
+  permission: PlaceListSharePermission;
+  created_at: string;
+};
+
+export type ImportedEmail = {
+  id: string;
+  user_id: string;
+  provider_message_id: string;
+  status: ImportStatus;
+  processing_error: string | null;
+  subject: string | null;
+  from_address: string | null;
+  normalized_booking_key: string | null;
+  raw_text: string | null;
+  raw_html: string | null;
+  ai_summary: string | null;
+  created_at: string;
+  processed_at: string | null;
+};
+
+export type ReservationReview = {
+  id: string;
+  imported_email_id: string;
+  user_id: string;
+  trip_id: string | null;
+  extracted_data: Record<string, unknown>;
+  status: "pending" | "confirmed" | "rejected";
+  match_reason: string | null;
+  matched_trip_confidence: number | null;
+  created_at: string;
+  updated_at: string;
+};

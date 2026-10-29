@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 64" fill="none" role="img" aria-label="Waypoint">
+  <g transform="translate(2 2) scale(0.92)">
+    <path fill="#176B87" d="M 11 54 C 6 44, 7 28, 17 16 C 24 8, 38 5, 50 11 C 52.5 12.2, 54.5 14, 56 16.2 C 53.5 17.2, 51 16.4, 48.8 15.4 C 39 11.2, 28.5 13.5, 22.5 20.5 C 16 29, 15.5 40.5, 19.5 49 C 16.5 51, 13.5 53, 11 54 Z"/>
+    <path fill="#E9B44C" d="M 19 51 C 16 43.5, 16.5 32, 23 24 C 27.5 18.5, 36.5 16, 44.5 19 C 46.5 19.8, 48 21, 49 22.5 C 47.2 23, 45.5 22.4, 44 21.8 C 37.5 19.2, 30.5 21, 27 25.5 C 22.5 31.5, 22.5 39.5, 25.5 45.5 C 23.5 47.5, 21 49.5, 19 51 Z"/>
+    <g transform="translate(57.5 14.5) rotate(-38)">
+      <path fill="#0F3A45" d="M14 0 L5 2.2 L-1 9.5 L-3.8 7.6 L2.2 2.2 L-5.5 1.3 L-8.2 5.4 L-10.5 3.6 L-8.4 0.7 L-12.8 0 L-8.4 -0.7 L-10.5 -3.6 L-8.2 -5.4 L-5.5 -1.3 L2.2 -2.2 L-3.8 -7.6 L-1 -9.5 L5 -2.2 Z"/>
+    </g>
+  </g>
+  <text x="72" y="42" fill="#0F3A45" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.03em">Waypoint</text>
+</svg>

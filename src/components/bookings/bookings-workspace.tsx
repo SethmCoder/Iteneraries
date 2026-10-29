@@ -149,14 +149,16 @@ export function BookingsWorkspace({
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">Bookings</h1>
+        <h1 className="text-xl font-semibold text-foreground sm:text-2xl">
+          Bookings
+        </h1>
         <p className="mt-1 text-sm text-muted">
           Flights, hotels, cars, and activities for your trips. Planned items
           stay separate until you mark them booked.
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="scrollbar-none -mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5">
         {(
           [
             ["all", "All"],
@@ -170,7 +172,7 @@ export function BookingsWorkspace({
             key={id}
             type="button"
             onClick={() => setFilter(id)}
-            className={`rounded-[8px] border px-3 py-1.5 text-sm font-semibold ${
+            className={`shrink-0 rounded-[8px] border px-3 py-2 text-sm font-semibold ${
               filter === id
                 ? "border-brand bg-brand text-white"
                 : "border-border bg-card text-muted"
@@ -181,7 +183,7 @@ export function BookingsWorkspace({
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="scrollbar-none -mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5">
         {(
           [
             ["all", "Any status"],
@@ -195,7 +197,7 @@ export function BookingsWorkspace({
             key={id}
             type="button"
             onClick={() => setStatusFilter(id)}
-            className={`rounded-[8px] border px-2.5 py-1 text-xs font-medium ${
+            className={`shrink-0 rounded-[8px] border px-2.5 py-1.5 text-xs font-medium ${
               statusFilter === id
                 ? "border-brand bg-brand-light text-brand"
                 : "border-border bg-white text-muted"

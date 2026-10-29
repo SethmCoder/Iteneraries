@@ -14,6 +14,10 @@ describe("buildDeterministicDrafts", () => {
     expect(new Set(drafts.map((d) => d.id)).size).toBe(3);
     expect(drafts[0]!.days.length).toBeGreaterThanOrEqual(1);
     expect(drafts.every((d) => d.notes?.includes("No flights"))).toBe(true);
+    const titles = drafts.flatMap((d) =>
+      d.days.flatMap((day) => day.items.map((i) => i.title)),
+    );
+    expect(titles.some((t) => /free time \/ buffer/i.test(t))).toBe(false);
   });
 
   it("includes user must-dos without inventing prices", () => {

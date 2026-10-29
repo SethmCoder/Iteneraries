@@ -11,43 +11,43 @@ import { shouldFetchPois } from "@/lib/poi/zoom-config";
 const POI_ICONS: Record<PoiCategory, L.DivIcon> = {
   attractions: L.divIcon({
     className: "",
-    html: `<div class="waypoint-poi-marker" style="color:#1616C9">▲</div>`,
+    html: `<div class="waypoint-poi-marker" style="color:var(--brand)">▲</div>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   }),
   museums: L.divIcon({
     className: "",
-    html: `<div class="waypoint-poi-marker" style="color:#1616C9">M</div>`,
+    html: `<div class="waypoint-poi-marker" style="color:var(--brand)">M</div>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   }),
   restaurants: L.divIcon({
     className: "",
-    html: `<div class="waypoint-poi-marker" style="color:#1616C9">🍴</div>`,
+    html: `<div class="waypoint-poi-marker" style="color:var(--brand)">🍴</div>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   }),
   cafes: L.divIcon({
     className: "",
-    html: `<div class="waypoint-poi-marker" style="color:#1616C9">☕</div>`,
+    html: `<div class="waypoint-poi-marker" style="color:var(--brand)">☕</div>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   }),
   parks: L.divIcon({
     className: "",
-    html: `<div class="waypoint-poi-marker" style="color:#1616C9">🌳</div>`,
+    html: `<div class="waypoint-poi-marker" style="color:var(--brand)">🌳</div>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   }),
   historic: L.divIcon({
     className: "",
-    html: `<div class="waypoint-poi-marker" style="color:#1616C9">🏛</div>`,
+    html: `<div class="waypoint-poi-marker" style="color:var(--brand)">🏛</div>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   }),
   shopping: L.divIcon({
     className: "",
-    html: `<div class="waypoint-poi-marker" style="color:#1616C9">🛍</div>`,
+    html: `<div class="waypoint-poi-marker" style="color:var(--brand)">🛍</div>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   }),
@@ -191,7 +191,7 @@ export function PoiClusterLayer({
       container.className = "min-w-[180px] space-y-2 font-sans";
       container.innerHTML = `
         <div>
-          <p class="font-semibold text-sm text-[#1F2937]"></p>
+          <p class="font-semibold text-sm text-foreground"></p>
           <p class="text-xs capitalize text-[#6B7280]"></p>
           ${place.address ? `<p class="text-xs text-[#6B7280]"></p>` : ""}
         </div>
@@ -210,7 +210,7 @@ export function PoiClusterLayer({
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className =
-          "inline-flex h-8 w-full items-center justify-center rounded-[8px] bg-[#1616C9] px-3 text-xs font-semibold text-white";
+          "inline-flex h-8 w-full items-center justify-center rounded-[8px] bg-brand px-3 text-xs font-semibold text-white";
         btn.textContent = "Add to Itinerary";
         btn.addEventListener("click", async () => {
           setAddingId(key);

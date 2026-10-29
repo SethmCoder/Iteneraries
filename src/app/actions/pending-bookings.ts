@@ -222,6 +222,7 @@ export async function savePendingActivityAction(input: unknown) {
   }
 
   revalidatePath("/bookings");
+  revalidatePath(`/trips/${parsed.tripId}`);
   return { ok: true as const };
 }
 

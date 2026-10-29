@@ -253,6 +253,7 @@ export async function confirmReservationImportAction(input: {
 
   revalidatePath(`/trips/${input.tripId}`);
   revalidatePath("/settings");
+  revalidatePath("/emails");
 }
 
 export async function rejectReservationImportAction(reviewId: string) {
@@ -279,4 +280,5 @@ export async function rejectReservationImportAction(reviewId: string) {
     .update({ status: "rejected" })
     .eq("id", review.imported_email_id);
   revalidatePath("/settings");
+  revalidatePath("/emails");
 }

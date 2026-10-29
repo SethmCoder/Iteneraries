@@ -104,9 +104,13 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-brand-hover bg-brand text-white">
-      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-4 md:px-6">
-        <Link href="/trips" className="shrink-0">
-          <AppLogo inverted size="sm" />
+      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-2 px-3 sm:gap-3 sm:px-4 md:px-6">
+        <Link href="/trips" className="min-w-0 shrink">
+          <AppLogo
+            inverted
+            size="sm"
+            wordmarkClassName="max-[380px]:hidden"
+          />
         </Link>
 
         <nav className="ml-2 hidden items-center gap-1 md:flex">
@@ -156,7 +160,10 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
                 ) : null}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
+            <DropdownMenuContent
+              align="end"
+              className="w-[min(20rem,calc(100vw-1.5rem))]"
+            >
               <div className="flex items-center justify-between px-2 py-1">
                 <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
                 <button
@@ -184,7 +191,7 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
                         router.push(`/trips/${n.related_trip_id}`);
                       else if (n.type.startsWith("friend")) router.push("/social");
                       else if (n.type.startsWith("import"))
-                        router.push("/settings?tab=imports");
+                        router.push("/emails");
                     }}
                   >
                     <span className={cn("text-sm", !n.read_at && "font-semibold")}>
@@ -234,6 +241,12 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
               <DropdownMenuItem onClick={() => router.push("/suggester")}>
                 Itinerary Suggester
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/saved-places")}>
+                Saved Places
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/emails")}>
+                Forwarded Emails
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/stats")}>
                 Stats
               </DropdownMenuItem>
@@ -263,66 +276,36 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
       </div>
 
       {mobileOpen ? (
-        <div className="border-t border-white/10 px-4 py-3 md:hidden">
-          <div className="flex flex-col gap-1">
-            {nextTrip ? (
-              <Link
-                href={`/trips/${nextTrip.id}`}
-                className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
-                onClick={() => setMobileOpen(false)}
-              >
-                Next Trip
-              </Link>
-            ) : null}
-            <Link
-              href="/social"
-              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => setMobileOpen(false)}
-            >
-              Social
-            </Link>
-            <Link
-              href="/flights"
-              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => setMobileOpen(false)}
-            >
-              Flights Pending
-            </Link>
-            <Link
-              href="/hotels"
-              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => setMobileOpen(false)}
-            >
-              Hotels Pending
-            </Link>
-            <Link
-              href="/bookings"
-              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => setMobileOpen(false)}
-            >
-              Bookings
-            </Link>
-            <Link
-              href="/suggester"
-              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => setMobileOpen(false)}
-            >
-              Itinerary Suggester
-            </Link>
-            <Link
-              href="/stats"
-              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => setMobileOpen(false)}
-            >
-              Stats
-            </Link>
-            <Link
-              href="/settings"
-              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
-              onClick={() => setMobileOpen(false)}
-            >
-              Settings
-            </Link>
+        <div className="max-h-[min(70vh,28rem)] overflow-y-auto border-t border-white/10 px-3 py-3 sm:px-4 md:hidden">
+          <div className="flex flex-col gap-0.5">
+            {(
+              [
+                nextTrip
+                  ? { href: `/trips/${nextTrip.id}`, label: "Next Trip" }
+                  : null,
+                { href: "/trips", label: "Trips" },
+                { href: "/social", label: "Social" },
+                { href: "/flights", label: "Flights Pending" },
+                { href: "/hotels", label: "Hotels Pending" },
+                { href: "/bookings", label: "Bookings" },
+                { href: "/suggester", label: "Itinerary Suggester" },
+                { href: "/saved-places", label: "Saved Places" },
+                { href: "/emails", label: "Forwarded Emails" },
+                { href: "/stats", label: "Stats" },
+                { href: "/settings", label: "Settings" },
+              ] as Array<{ href: string; label: string } | null>
+            )
+              .filter(Boolean)
+              .map((item) => (
+                <Link
+                  key={item!.href + item!.label}
+                  href={item!.href}
+                  className="rounded-[8px] px-3 py-2.5 text-sm font-medium hover:bg-white/10"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  {item!.label}
+                </Link>
+              ))}
           </div>
         </div>
       ) : null}

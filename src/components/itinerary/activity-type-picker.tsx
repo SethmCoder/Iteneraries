@@ -41,7 +41,7 @@ export function ActivityTypePicker({
       >
         <span
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm"
-          style={{ background: "#1616C9", color: "white" }}
+          style={{ background: "var(--brand)", color: "white" }}
           aria-hidden
         >
           {selected.emoji}
@@ -68,7 +68,7 @@ export function ActivityTypePicker({
               >
                 <span
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm"
-                  style={{ background: "#1616C9", color: "white" }}
+                  style={{ background: "var(--brand)", color: "white" }}
                   aria-hidden
                 >
                   {opt.emoji}

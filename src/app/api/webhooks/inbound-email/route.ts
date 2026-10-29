@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { extractReservationFromEmail } from "@/lib/ai/extract-reservation";
+import { buildItineraryRowsFromExtracted } from "@/lib/email/apply-reservation";
+import { matchTripForReservation } from "@/lib/email/match-trip";
 import { normalizeBookingKey } from "@/lib/email/normalize";
+import {
+  allocateUniqueTripSlug,
+  slugifyTripName,
+} from "@/lib/email/trip-address";
 import { verifyResendWebhook } from "@/lib/email/webhook";
 import { isAiConfigured, isEmailImportConfigured } from "@/lib/env";
 import { rateLimit } from "@/lib/rate-limit";
@@ -113,6 +119,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const rawText =
+    typeof data.text === "string" && data.text.trim() ? data.text : null;
+  const rawHtml =
+    typeof data.html === "string" && data.html.trim() ? data.html : null;
+
   const { data: imported, error: importError } = await admin
     .from("imported_emails")
     .insert({
@@ -121,6 +132,8 @@ export async function POST(request: Request) {
       status: "processing",
       subject: typeof data.subject === "string" ? data.subject : null,
       from_address: fromAddress,
+      raw_text: rawText,
+      raw_html: rawHtml,
     })
     .select("*")
     .single();
@@ -133,10 +146,7 @@ export async function POST(request: Request) {
     if (!isAiConfigured()) {
       throw new Error("AI not configured for extraction");
     }
-    const body =
-      (typeof data.text === "string" && data.text) ||
-      (typeof data.html === "string" && data.html) ||
-      "";
+    const body = rawText || rawHtml || "";
     const subject = typeof data.subject === "string" ? data.subject : undefined;
     const extracted = await extractReservationFromEmail(body, subject);
     const bookingKey = normalizeBookingKey(extracted);
@@ -163,30 +173,123 @@ export async function POST(request: Request) {
       }
     }
 
-    await admin.from("reservation_reviews").insert({
-      imported_email_id: imported.id,
-      user_id: userId,
-      trip_id: tripId,
-      extracted_data: extracted,
-      status: "pending",
+    const extractedRecord = extracted as unknown as Record<string, unknown>;
+
+    // Load user trips for smart matching when plus-tag did not bind a trip
+    const { data: ownedTrips } = await admin
+      .from("trips")
+      .select("id, name, destination_name, start_date, end_date")
+      .eq("owner_id", userId);
+
+    const match = await matchTripForReservation({
+      trips: ownedTrips ?? [],
+      extracted: extractedRecord,
+      preferTripId: tripId,
     });
 
-    await admin
-      .from("imported_emails")
-      .update({
-        status: "ready_for_review",
-        processed_at: new Date().toISOString(),
-        normalized_booking_key: bookingKey || null,
+    let resolvedTripId = match.tripId;
+    let matchReason = match.reason;
+
+    if (!resolvedTripId && match.createTrip) {
+      const emailSlug = await allocateUniqueTripSlug(
+        admin,
+        slugifyTripName(match.createTrip.name, crypto.randomUUID()),
+      );
+      const { data: newTrip, error: tripErr } = await admin
+        .from("trips")
+        .insert({
+          owner_id: userId,
+          name: match.createTrip.name,
+          destination_name: match.createTrip.destination_name,
+          start_date: match.createTrip.start_date,
+          end_date: match.createTrip.end_date,
+          status: "planned",
+          email_slug: emailSlug,
+        })
+        .select("id")
+        .single();
+      if (!tripErr && newTrip) {
+        await admin.from("trip_members").insert({
+          trip_id: newTrip.id,
+          user_id: userId,
+          role: "owner",
+          invited_by: userId,
+          invitation_status: "accepted",
+        });
+        resolvedTripId = newTrip.id;
+        matchReason = `created_trip: ${match.reason}`;
+      }
+    }
+
+    const { data: prefs } = await admin
+      .from("user_preferences")
+      .select("auto_confirm_imports")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const autoConfirm = Boolean(prefs?.auto_confirm_imports);
+
+    const { data: review, error: reviewErr } = await admin
+      .from("reservation_reviews")
+      .insert({
+        imported_email_id: imported.id,
+        user_id: userId,
+        trip_id: resolvedTripId,
+        extracted_data: extracted,
+        status: autoConfirm && resolvedTripId ? "confirmed" : "pending",
+        match_reason: matchReason,
+        matched_trip_confidence: match.confidence,
       })
-      .eq("id", imported.id);
+      .select("id")
+      .single();
+
+    if (reviewErr) throw new Error(reviewErr.message);
+
+    if (autoConfirm && resolvedTripId && review) {
+      const rows = buildItineraryRowsFromExtracted(extractedRecord);
+      for (const row of rows) {
+        await admin.from("itinerary_items").insert({
+          trip_id: resolvedTripId,
+          created_by: userId,
+          item_type: row.item_type,
+          title: row.title,
+          address: row.address,
+          location_name: row.location_name,
+          start_at: row.start_at,
+          end_at: row.end_at,
+          booking_reference: row.booking_reference,
+          details: { ...row.details, source: "email_import" },
+          sort_order: 999,
+        });
+      }
+      await admin
+        .from("imported_emails")
+        .update({
+          status: "confirmed",
+          processed_at: new Date().toISOString(),
+          normalized_booking_key: bookingKey || null,
+        })
+        .eq("id", imported.id);
+    } else {
+      await admin
+        .from("imported_emails")
+        .update({
+          status: "ready_for_review",
+          processed_at: new Date().toISOString(),
+          normalized_booking_key: bookingKey || null,
+        })
+        .eq("id", imported.id);
+    }
 
     await admin.from("notifications").insert({
       user_id: userId,
       type: "import_ready",
-      message: "A forwarded reservation is ready for review.",
+      message: autoConfirm
+        ? "A forwarded reservation was added to a trip."
+        : "A forwarded reservation is ready for review on Forwarded Emails.",
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, tripId: resolvedTripId });
   } catch (e) {
     await admin
       .from("imported_emails")
@@ -200,9 +303,12 @@ export async function POST(request: Request) {
     await admin.from("notifications").insert({
       user_id: userId,
       type: "import_error",
-      message: "Reservation import failed. Open Settings to retry.",
+      message: "Reservation import failed. Open Forwarded Emails to review.",
     });
 
-    return NextResponse.json({ ok: false, error: "Processing failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "Processing failed" },
+      { status: 500 },
+    );
   }
 }

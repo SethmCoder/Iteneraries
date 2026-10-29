@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { ExternalLink, Plane, Trash2 } from "lucide-react";
 import {
@@ -308,20 +309,32 @@ export function FlightsPendingWorkspace({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Flights Pending</h1>
-        <p className="mt-1 text-sm text-muted">
-          Track trip flights with airline, route, and booking status. OpenFlights
-          finds known routes; Flight MCP Open Cache shows limited cached cash
-          fares (not live awards).
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Flights Pending</h1>
+          <p className="mt-1 text-sm text-muted">
+            Track trip flights with airline, route, and booking status. OpenFlights
+            finds known routes; Flight MCP Open Cache shows limited cached cash
+            fares (not live awards).
+          </p>
+        </div>
+        {tripId ? (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" asChild>
+              <Link href={`/trips/${tripId}`}>Back to trip planning</Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/trips/${tripId}`}>Continue to major activities</Link>
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       {message ? <p className="text-sm text-success">{message}</p> : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <section className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
+        <section className="min-w-0 rounded-[12px] border border-border bg-card p-3 shadow-sm sm:p-4">
           <h2 className="font-semibold">
             {form.id ? "Edit flight" : "Add flight"}
           </h2>
@@ -637,7 +650,7 @@ export function FlightsPendingWorkspace({
           </div>
         </section>
 
-        <section className="rounded-[12px] border border-border bg-card p-4 shadow-sm">
+        <section className="min-w-0 rounded-[12px] border border-border bg-card p-3 shadow-sm sm:p-4">
           <h2 className="font-semibold">Your pending flights</h2>
           <p className="mt-0.5 text-xs text-muted">
             Status shows what still needs to be booked for each trip.

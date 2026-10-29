@@ -199,7 +199,7 @@ export function SettingsWorkspace({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
+        <h1 className="text-xl font-bold sm:text-2xl">Settings</h1>
         <p className="text-sm text-muted">Manage your profile and preferences.</p>
       </div>
       {message ? <p className="text-sm text-success">{message}</p> : null}
