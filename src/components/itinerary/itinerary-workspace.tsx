@@ -136,7 +136,7 @@ export function ItineraryWorkspace({
   >([]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
-  const [activityType, setActivityType] = useState<ActivityTypeId>("attraction");
+  const [activityType, setActivityType] = useState<ActivityTypeId>("sightseeing");
   const [tripSection, setTripSection] = useState<TripSection>("itinerary");
   /** Narrow screens: show itinerary or map one at a time instead of squeezed columns. */
   const [mobilePane, setMobilePane] = useState<"itinerary" | "map">("itinerary");
@@ -1098,11 +1098,17 @@ export function ItineraryWorkspace({
                     className="min-w-0 flex-1"
                     value={searchQ}
                     placeholder={
-                      activityType === "restaurant"
+                      activityType === "dining" || activityType === "restaurant"
                         ? "Restaurant name or address"
                         : activityType === "meeting"
                           ? "Meeting location"
-                          : "Eiffel Tower, Paris"
+                          : activityType === "hotel" ||
+                              activityType === "resort" ||
+                              activityType === "vacation_rental"
+                            ? "Hotel or stay name"
+                            : activityType === "flight"
+                              ? "Airport or flight"
+                              : "Place name or address"
                     }
                     onChange={(e) => {
                       setSearchQ(e.target.value);
