@@ -228,6 +228,9 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
                 <Building2 className="mr-2 h-4 w-4" />
                 Hotels Pending
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/bookings")}>
+                Bookings
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/settings")}>
                 Settings
               </DropdownMenuItem>
@@ -285,6 +288,13 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
               onClick={() => setMobileOpen(false)}
             >
               Hotels Pending
+            </Link>
+            <Link
+              href="/bookings"
+              className="rounded-[8px] px-3 py-2 text-sm hover:bg-white/10"
+              onClick={() => setMobileOpen(false)}
+            >
+              Bookings
             </Link>
             <Link
               href="/settings"

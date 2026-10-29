@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRequestUserId } from "@/lib/auth-guard";
-import { searchRoutes } from "@/lib/flights/openflights-routes";
+import { findFlights, searchRoutes } from "@/lib/flights/openflights-routes";
 import { rateLimit } from "@/lib/rate-limit";
 
 export async function GET(request: Request) {
@@ -17,5 +17,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";
-  return NextResponse.json({ results: searchRoutes(from, to, 20) });
+  const mode = searchParams.get("mode") ?? "find";
+
+  if (mode === "direct") {
+    return NextResponse.json({ results: searchRoutes(from, to, 20) });
+  }
+
+  return NextResponse.json({ results: findFlights(from, to, 30) });
 }

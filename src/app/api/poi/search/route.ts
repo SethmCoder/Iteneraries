@@ -41,9 +41,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const result = await getPoisForViewport(parsed.data);
+    const result = await getPoisForViewport({
+      ...parsed.data,
+      signal: request.signal,
+    });
     return NextResponse.json(result);
   } catch (e) {
+    if (
+      request.signal.aborted ||
+      (e instanceof Error && e.name === "AbortError")
+    ) {
+      return new NextResponse(null, { status: 499 });
+    }
     return NextResponse.json(
       { error: (e as Error).message || "POI lookup failed" },
       { status: 502 },

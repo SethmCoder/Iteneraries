@@ -45,9 +45,31 @@ import {
 } from "@/lib/itinerary-time";
 import type { PoiPlace } from "@/lib/poi/types";
 import type { ItineraryItem, Profile, Trip, TripMember } from "@/types/database";
+import { ActivityTypePicker } from "@/components/itinerary/activity-type-picker";
 import { TransportSegmentList } from "@/components/itinerary/transport-segments";
 import { CollaboratorsPanel } from "@/components/itinerary/collaborators-panel";
 import { TripForwardEmail } from "@/components/itinerary/trip-forward-email";
+import {
+  getActivityType,
+  type ActivityTypeId,
+} from "@/lib/itinerary/activity-types";
+
+type TripSection =
+  | "overview"
+  | "itinerary"
+  | "flights"
+  | "hotels"
+  | "activities"
+  | "bookings";
+
+const TRIP_SECTIONS: { id: TripSection; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "itinerary", label: "Itinerary" },
+  { id: "flights", label: "Flights" },
+  { id: "hotels", label: "Hotels" },
+  { id: "activities", label: "Activities" },
+  { id: "bookings", label: "Bookings" },
+];
 
 type SuggestedItem = {
   title: string;
@@ -95,6 +117,8 @@ export function ItineraryWorkspace({
   >([]);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
+  const [activityType, setActivityType] = useState<ActivityTypeId>("attraction");
+  const [tripSection, setTripSection] = useState<TripSection>("itinerary");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedItinerary | null>(null);
   const [suggestError, setSuggestError] = useState<string | null>(null);
@@ -130,6 +154,7 @@ export function ItineraryWorkspace({
           lng: i.longitude!,
           title: i.title,
           subtitle: i.address,
+          osmId: i.osm_id,
         })),
     [visibleItems],
   );
@@ -223,16 +248,23 @@ export function ItineraryWorkspace({
     const latitude = Number(r.lat);
     const longitude = Number(r.lon);
 
+    const typeMeta = getActivityType(activityType);
     if (isDemoTrip) {
       setItems((prev) => [
         ...prev,
         createLocalItem({
           title,
+          item_type: typeMeta.itemType,
           location_name: title,
           address: r.display_name,
           latitude,
           longitude,
-          details: { source: "search", preview: true },
+          details: {
+            source: "search",
+            preview: true,
+            activityType: typeMeta.id,
+            category: typeMeta.category,
+          },
         }),
       ]);
       setSearchResults([]);
@@ -245,11 +277,15 @@ export function ItineraryWorkspace({
       const result = await addItineraryItemAction({
         tripId: trip.id,
         title,
-        item_type: "place",
+        item_type: typeMeta.itemType,
         location_name: title,
         address: r.display_name,
         latitude,
         longitude,
+        details: {
+          activityType: typeMeta.id,
+          category: typeMeta.category,
+        },
       });
       if (result.item && "title" in result.item) {
         setItems((prev) => [...prev, result.item as ItineraryItem]);
@@ -604,6 +640,41 @@ export function ItineraryWorkspace({
         </div>
       </div>
 
+      <nav
+        className="flex flex-wrap gap-1 rounded-[12px] border border-border bg-card p-1.5 shadow-sm"
+        aria-label="Trip sections"
+      >
+        {TRIP_SECTIONS.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            onClick={() => {
+              if (section.id === "flights") {
+                window.location.href = `/flights?tripId=${trip.id}`;
+                return;
+              }
+              if (section.id === "hotels") {
+                window.location.href = `/hotels?tripId=${trip.id}`;
+                return;
+              }
+              if (section.id === "bookings") {
+                window.location.href = `/bookings?tripId=${trip.id}`;
+                return;
+              }
+              setTripSection(section.id);
+            }}
+            className={`rounded-[8px] px-3 py-1.5 text-sm font-semibold transition-colors ${
+              tripSection === section.id ||
+              (section.id === "flights" && tripSection === "flights")
+                ? "bg-brand text-white"
+                : "text-muted hover:bg-brand-light hover:text-brand"
+            }`}
+          >
+            {section.label}
+          </button>
+        ))}
+      </nav>
+
       {routeError ? (
         <div className="rounded-[12px] border border-border bg-card p-3 text-sm text-warning">
           {routeError}
@@ -709,28 +780,41 @@ export function ItineraryWorkspace({
           </div>
           {canEdit ? (
             <div className="rounded-[12px] border border-border bg-card p-3">
-              <Label htmlFor="place-search">Add a place</Label>
+              <Label>Add to itinerary</Label>
               <p className="mt-0.5 text-xs text-muted">
-                Search for a real place, then click a result to add it to this trip.
+                Pick a type, then search for a place. This plans a stop — it does
+                not confirm a booking.
               </p>
-              <div className="mt-1.5 flex gap-2">
-                <Input
-                  id="place-search"
-                  value={searchQ}
-                  placeholder="Eiffel Tower, Paris"
-                  onChange={(e) => {
-                    setSearchQ(e.target.value);
-                    setSearchError(null);
-                  }}
-                  onKeyDown={(e) => e.key === "Enter" && void searchPlaces()}
+              <div className="mt-2 space-y-2">
+                <ActivityTypePicker
+                  value={activityType}
+                  onChange={setActivityType}
                 />
-                <Button
-                  type="button"
-                  disabled={searching}
-                  onClick={() => void searchPlaces()}
-                >
-                  {searching ? "…" : "Search"}
-                </Button>
+                <div className="flex gap-2">
+                  <Input
+                    id="place-search"
+                    value={searchQ}
+                    placeholder={
+                      activityType === "restaurant"
+                        ? "Restaurant name or address"
+                        : activityType === "meeting"
+                          ? "Meeting location"
+                          : "Eiffel Tower, Paris"
+                    }
+                    onChange={(e) => {
+                      setSearchQ(e.target.value);
+                      setSearchError(null);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && void searchPlaces()}
+                  />
+                  <Button
+                    type="button"
+                    disabled={searching}
+                    onClick={() => void searchPlaces()}
+                  >
+                    {searching ? "…" : "Search"}
+                  </Button>
+                </div>
               </div>
               {searchError ? (
                 <p className="mt-2 text-sm text-destructive">{searchError}</p>

@@ -42,6 +42,34 @@ function keyForReservation(extracted: ExtractedReservation): string {
         norm(extracted.hotelName),
         datePart(extracted.checkIn),
       ].join(":");
+    case "restaurant":
+      return [
+        "restaurant",
+        confirmation,
+        norm(extracted.restaurantName),
+        datePart(extracted.reservationTime),
+      ].join(":");
+    case "car_rental":
+      return [
+        "car",
+        confirmation || norm(extracted.provider),
+        norm(extracted.pickupLocation),
+        datePart(extracted.pickupTime),
+      ].join(":");
+    case "activity":
+      return [
+        "activity",
+        confirmation,
+        norm(extracted.title),
+        datePart(extracted.startTime),
+      ].join(":");
+    case "meeting":
+      return [
+        "meeting",
+        confirmation,
+        norm(extracted.title),
+        datePart(extracted.startTime),
+      ].join(":");
   }
 }
 

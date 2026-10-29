@@ -60,10 +60,55 @@ export const trainReservationSchema = z.object({
   passengerNames: passengers,
 });
 
+export const restaurantReservationSchema = z.object({
+  type: z.literal("restaurant"),
+  confirmationNumber: optionalString,
+  restaurantName: z.string().min(1),
+  address: optionalString,
+  reservationTime: optionalIsoDateTime,
+  partySize: z.number().int().positive().nullish().transform((v) => v ?? undefined),
+  guestNames: passengers,
+});
+
+export const carRentalReservationSchema = z.object({
+  type: z.literal("car_rental"),
+  confirmationNumber: optionalString,
+  provider: optionalString,
+  pickupLocation: z.string().min(1),
+  dropoffLocation: optionalString,
+  pickupTime: isoDateTime,
+  dropoffTime: optionalIsoDateTime,
+  guestNames: passengers,
+});
+
+export const activityReservationSchema = z.object({
+  type: z.literal("activity"),
+  confirmationNumber: optionalString,
+  title: z.string().min(1),
+  location: optionalString,
+  startTime: optionalIsoDateTime,
+  endTime: optionalIsoDateTime,
+  guestNames: passengers,
+});
+
+export const meetingReservationSchema = z.object({
+  type: z.literal("meeting"),
+  confirmationNumber: optionalString,
+  title: z.string().min(1),
+  location: optionalString,
+  startTime: optionalIsoDateTime,
+  endTime: optionalIsoDateTime,
+  guestNames: passengers,
+});
+
 export const reservationItemSchema = z.discriminatedUnion("type", [
   flightReservationSchema,
   hotelReservationSchema,
   trainReservationSchema,
+  restaurantReservationSchema,
+  carRentalReservationSchema,
+  activityReservationSchema,
+  meetingReservationSchema,
 ]);
 
 export const reservationExtractSchema = z.object({
@@ -100,24 +145,29 @@ function toPlainText(body: string): string {
 }
 
 const SYSTEM_PROMPT = [
-  "You extract travel reservations (flights, hotels, trains) from booking confirmation emails.",
+  "You extract travel and booking confirmations from emails.",
+  "Supported types: flight, hotel, train, restaurant, car_rental, activity, meeting.",
+  "Confirmation emails vary widely in format — extract whatever fields are explicitly present.",
   "Only extract information explicitly present in the email. Never guess or invent values.",
-  "If a field is not present, use null. If the email contains no flight, hotel, or train reservation, return an empty reservations array.",
-  "Emails with multiple flight or train legs must produce one entry per leg.",
-  "Dates and times must be ISO 8601 local times at the location without a timezone offset: YYYY-MM-DDTHH:mm (use YYYY-MM-DD only if no time is given for a hotel).",
+  "If a field is not present, use null. If the email contains no booking confirmation, return an empty reservations array.",
+  "Emails with multiple legs or bookings must produce one entry per booking/leg.",
+  "Dates and times must be ISO 8601 local times without a timezone offset: YYYY-MM-DDTHH:mm (or YYYY-MM-DD if no time).",
   "Airports should be IATA codes when stated (e.g. SFO), otherwise the name as written.",
   "Output JSON shaped as:",
   '{"reservations":[',
   '{"type":"flight","confirmationNumber":string|null,"airline":string|null,"flightNumber":string|null,"departureAirport":string,"arrivalAirport":string,"departureTime":string,"arrivalTime":string|null,"passengerNames":string[]|null},',
   '{"type":"hotel","confirmationNumber":string|null,"hotelName":string,"address":string|null,"checkIn":string,"checkOut":string,"guestNames":string[]|null},',
-  '{"type":"train","confirmationNumber":string|null,"operator":string|null,"trainNumber":string|null,"departureStation":string,"arrivalStation":string,"departureTime":string,"arrivalTime":string|null,"passengerNames":string[]|null}',
+  '{"type":"train","confirmationNumber":string|null,"operator":string|null,"trainNumber":string|null,"departureStation":string,"arrivalStation":string,"departureTime":string,"arrivalTime":string|null,"passengerNames":string[]|null},',
+  '{"type":"restaurant","confirmationNumber":string|null,"restaurantName":string,"address":string|null,"reservationTime":string|null,"partySize":number|null,"guestNames":string[]|null},',
+  '{"type":"car_rental","confirmationNumber":string|null,"provider":string|null,"pickupLocation":string,"dropoffLocation":string|null,"pickupTime":string,"dropoffTime":string|null,"guestNames":string[]|null},',
+  '{"type":"activity","confirmationNumber":string|null,"title":string,"location":string|null,"startTime":string|null,"endTime":string|null,"guestNames":string[]|null},',
+  '{"type":"meeting","confirmationNumber":string|null,"title":string,"location":string|null,"startTime":string|null,"endTime":string|null,"guestNames":string[]|null}',
   "]}",
 ].join("\n");
 
 /**
- * Extract reservations from a booking email. `subject` (optional) is provided to
- * the model as extra context. Returns an empty `reservations` array when the
- * email contains no flight, hotel, or train booking.
+ * Extract reservations from a booking email. Supports varied confirmation formats
+ * (airline, hotel, restaurant, car rental, activity, meeting, etc.).
  */
 export async function extractReservationFromEmail(
   body: string,

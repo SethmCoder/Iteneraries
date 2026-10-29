@@ -12,11 +12,11 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PoiClusterLayer } from "@/components/map/poi-cluster-layer";
 import type { PoiCategory, PoiPlace } from "@/lib/poi/types";
-import { POI_CATEGORIES, shouldFetchPois } from "@/lib/poi/zoom-config";
+import { POI_CATEGORIES } from "@/lib/poi/zoom-config";
 
 export type MapItineraryPin = {
   id: string;
@@ -25,6 +25,8 @@ export type MapItineraryPin = {
   title: string;
   subtitle?: string | null;
   href?: string;
+  /** OSM id like "node/123" used to hide duplicate POI markers */
+  osmId?: string | null;
 };
 
 export type MapRouteSegment = {
@@ -48,9 +50,9 @@ type WaypointMapProps = {
 const itineraryIcon = (selected: boolean) =>
   L.divIcon({
     className: "",
-    html: `<div class="waypoint-itinerary-marker${selected ? " selected" : ""}"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
+    html: `<div class="waypoint-itinerary-marker${selected ? " selected" : ""}" title="Itinerary stop"></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
   });
 
 function FitBounds({
@@ -105,175 +107,6 @@ const CATEGORY_FILTERS: { id: PoiCategory; label: string }[] = [
   { id: "historic", label: "Historic" },
   { id: "shopping", label: "Shopping" },
 ];
-
-function categoryGlyph(category: PoiCategory): string {
-  const color = "#1616C9";
-  const icons: Record<PoiCategory, string> = {
-    attractions: "▲",
-    museums: "M",
-    restaurants: "🍴",
-    cafes: "☕",
-    parks: "🌳",
-    historic: "🏛",
-    shopping: "🛍",
-  };
-  return `<div class="waypoint-poi-marker" style="color:${color}">${icons[category] ?? "•"}</div>`;
-}
-
-function poiIcon(category: PoiCategory) {
-  return L.divIcon({
-    className: "",
-    html: categoryGlyph(category),
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-  });
-}
-
-function PoiLayer({
-  enabled,
-  tripId,
-  itineraryOsmIds,
-  onAddPoi,
-  activeCategories,
-}: {
-  enabled: boolean;
-  tripId?: string | null;
-  itineraryOsmIds: Set<string>;
-  onAddPoi?: (place: PoiPlace) => Promise<void> | void;
-  activeCategories: PoiCategory[];
-}) {
-  const [places, setPlaces] = useState<PoiPlace[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [addingId, setAddingId] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const map = useMap();
-
-  useMapEvents({
-    zoomend: () => setRefreshKey((k) => k + 1),
-    moveend: () => setRefreshKey((k) => k + 1),
-  });
-
-  useEffect(() => {
-    if (!enabled) return;
-
-    const timer = setTimeout(async () => {
-      const zoom = map.getZoom();
-      if (!shouldFetchPois(zoom)) {
-        setPlaces([]);
-        return;
-      }
-      const b = map.getBounds();
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch("/api/poi/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            south: b.getSouth(),
-            west: b.getWest(),
-            north: b.getNorth(),
-            east: b.getEast(),
-            zoom,
-            categories: activeCategories,
-          }),
-          signal: controller.signal,
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || "Failed to load places");
-        }
-        const data = (await res.json()) as { places: PoiPlace[] };
-        setPlaces(data.places ?? []);
-      } catch (e) {
-        if ((e as Error).name === "AbortError") return;
-        setError((e as Error).message || "Places unavailable");
-      } finally {
-        setLoading(false);
-      }
-    }, 400);
-
-    return () => {
-      clearTimeout(timer);
-      abortRef.current?.abort();
-    };
-  }, [enabled, map, activeCategories, refreshKey]);
-
-  const visible = places.filter(
-    (p) => !itineraryOsmIds.has(`${p.osmType}/${p.osmId}`),
-  );
-
-  return (
-    <>
-      {loading ? (
-        <div className="pointer-events-none absolute right-3 top-14 z-[450] flex items-center gap-1.5 rounded-[8px] border border-border bg-card px-2 py-1 text-xs text-muted shadow-sm">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          Loading places…
-        </div>
-      ) : null}
-      {error ? (
-        <div className="absolute right-3 top-14 z-[450] max-w-[220px] rounded-[8px] border border-border bg-card px-2 py-1 text-xs text-destructive shadow-sm">
-          {error}{" "}
-          <button
-            type="button"
-            className="underline"
-            onClick={() => setRefreshKey((k) => k + 1)}
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-      {visible.slice(0, 200).map((place) => (
-        <Marker
-          key={`${place.osmType}/${place.osmId}`}
-          position={[place.lat, place.lon]}
-          icon={poiIcon(place.category)}
-        >
-          <Popup>
-            <div className="min-w-[180px] space-y-2 font-[family-name:var(--font-inter)]">
-              <div>
-                <p className="font-semibold text-sm text-[#1F2937]">{place.name}</p>
-                <p className="text-xs capitalize text-[#6B7280]">{place.category}</p>
-                {place.address ? (
-                  <p className="text-xs text-[#6B7280]">{place.address}</p>
-                ) : null}
-              </div>
-              {onAddPoi && tripId ? (
-                <Button
-                  size="sm"
-                  className="w-full"
-                  disabled={addingId === `${place.osmType}/${place.osmId}`}
-                  onClick={async () => {
-                    const key = `${place.osmType}/${place.osmId}`;
-                    setAddingId(key);
-                    try {
-                      await onAddPoi(place);
-                    } finally {
-                      setAddingId(null);
-                    }
-                  }}
-                >
-                  {addingId === `${place.osmType}/${place.osmId}`
-                    ? "Adding…"
-                    : "Add to Itinerary"}
-                </Button>
-              ) : (
-                <p className="text-xs text-[#6B7280]">
-                  Open a trip to add this place.
-                </p>
-              )}
-            </div>
-          </Popup>
-        </Marker>
-      ))}
-    </>
-  );
-}
 
 function SearchAndFly({
   onFly,
@@ -426,7 +259,13 @@ export default function MapInner({
   ]);
   const [baseLayer, setBaseLayer] = useState<MapBaseLayer>("streets");
 
-  const itineraryOsmIds = useMemo(() => new Set<string>(), []);
+  const itineraryOsmIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const pin of pins) {
+      if (pin.osmId) ids.add(pin.osmId);
+    }
+    return ids;
+  }, [pins]);
   const tiles = BASE_LAYERS[baseLayer];
   const isSatellite = baseLayer === "satellite";
 
@@ -501,7 +340,7 @@ export default function MapInner({
           </Marker>
         ))}
         {enablePoi ? (
-          <PoiLayer
+          <PoiClusterLayer
             enabled={enablePoi}
             tripId={tripId}
             itineraryOsmIds={itineraryOsmIds}

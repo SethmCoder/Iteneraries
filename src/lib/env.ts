@@ -146,3 +146,28 @@ export function getApproveTokenSecret(): string | null {
     null
   );
 }
+
+/** Optional Makcorps JWT for free city hotel rate samples (price tags). */
+export function getMakcorpsJwt(): string | null {
+  return process.env.MAKCORPS_JWT?.trim() || null;
+}
+
+export function isHotelPriceEnrichmentConfigured(): boolean {
+  return Boolean(getMakcorpsJwt());
+}
+
+/**
+ * Google Places API (New) key — Text Search lodging + Place Photos.
+ * Enable “Places API (New)” in Google Cloud; free monthly credit applies.
+ */
+export function getGooglePlacesApiKey(): string | null {
+  return (
+    process.env.GOOGLE_PLACES_API_KEY?.trim() ||
+    process.env.GOOGLE_MAPS_API_KEY?.trim() ||
+    null
+  );
+}
+
+export function isGoogleHotelsConfigured(): boolean {
+  return Boolean(getGooglePlacesApiKey());
+}

@@ -23,7 +23,7 @@ export type FetchPoisParams = ViewportBounds & {
   signal?: AbortSignal;
   /** Only fetch features that have a wikidata tag (major sights). */
   majorOnly?: boolean;
-  /** Server-side Overpass timeout in seconds. Defaults to 25. */
+  /** Server-side Overpass timeout in seconds. Defaults to 15. */
   timeoutSeconds?: number;
 };
 
@@ -59,7 +59,7 @@ function assertBounds({ south, west, north, east }: ViewportBounds): void {
 /** Build Overpass QL that selects named nodes and ways for the given categories. */
 export function buildOverpassQuery(params: FetchPoisParams): string {
   const { south, west, north, east, categories, limit, majorOnly } = params;
-  const timeout = Math.max(5, Math.min(60, params.timeoutSeconds ?? 25));
+  const timeout = Math.max(5, Math.min(30, params.timeoutSeconds ?? 15));
   const bbox = `(${south},${west},${north},${east})`;
   const extra = majorOnly ? '["wikidata"]' : "";
 
@@ -67,14 +67,14 @@ export function buildOverpassQuery(params: FetchPoisParams): string {
   for (const category of categories) {
     for (const filter of CATEGORY_TAGS[category]) {
       const pattern = filter.values.map(escapeQlString).join("|");
+      // `nwr` covers node/way/relation in one clause (fewer QL statements).
       const selector = `["${filter.key}"~"^(${pattern})$"]["name"]${extra}`;
-      statements.push(`  node${selector}${bbox};`);
-      statements.push(`  way${selector}${bbox};`);
+      statements.push(`  nwr${selector}${bbox};`);
     }
   }
 
   // `out center N` is valid; `out center tags N` is rejected by some mirrors (HTTP 406).
-  const safeLimit = Math.max(1, Math.min(300, Math.floor(limit)));
+  const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
   return [
     `[out:json][timeout:${timeout}];`,
     "(",
@@ -141,7 +141,7 @@ export function parseOverpassElements(
       category,
       lat,
       lon,
-      tags,
+      // Omit full OSM tags from API/cache payloads (address only when present).
     };
     const address = buildAddress(tags);
     if (address) place.address = address;

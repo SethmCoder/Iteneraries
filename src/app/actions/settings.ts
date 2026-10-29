@@ -145,7 +145,11 @@ export async function confirmReservationImportAction(input: {
           ? "hotel"
           : type === "train"
             ? "train"
-            : "other";
+            : type === "car_rental"
+              ? "ground_transport"
+              : type === "restaurant" || type === "activity" || type === "meeting"
+                ? "place"
+                : "other";
 
     let title = "Imported reservation";
     let location_name: string | null = null;
@@ -190,6 +194,36 @@ export async function confirmReservationImportAction(input: {
         typeof extracted.arrivalTime === "string"
           ? extracted.arrivalTime
           : null;
+    } else if (type === "restaurant") {
+      title = String(extracted.restaurantName ?? "Restaurant");
+      address =
+        typeof extracted.address === "string" ? extracted.address : null;
+      location_name = title;
+      start_at =
+        typeof extracted.reservationTime === "string"
+          ? extracted.reservationTime
+          : null;
+    } else if (type === "car_rental") {
+      title = `${String(extracted.provider ?? "Car rental")}`.trim();
+      location_name = String(extracted.pickupLocation ?? "");
+      address =
+        typeof extracted.dropoffLocation === "string"
+          ? extracted.dropoffLocation
+          : null;
+      start_at =
+        typeof extracted.pickupTime === "string" ? extracted.pickupTime : null;
+      end_at =
+        typeof extracted.dropoffTime === "string"
+          ? extracted.dropoffTime
+          : null;
+    } else if (type === "activity" || type === "meeting") {
+      title = String(extracted.title ?? (type === "meeting" ? "Meeting" : "Activity"));
+      location_name =
+        typeof extracted.location === "string" ? extracted.location : null;
+      start_at =
+        typeof extracted.startTime === "string" ? extracted.startTime : null;
+      end_at =
+        typeof extracted.endTime === "string" ? extracted.endTime : null;
     }
 
     const { error: itemError } = await supabase.from("itinerary_items").insert({

@@ -285,6 +285,7 @@ export type PendingFlight = {
   return_date: string | null;
   passengers: number;
   airline: string | null;
+  flight_number?: string | null;
   booking_status: BookingStatus;
   booking_url: string | null;
   notes: string | null;
@@ -304,6 +305,40 @@ export type PendingHotel = {
   guests: number;
   booking_status: BookingStatus;
   booking_url: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PendingCar = {
+  id: string;
+  user_id: string;
+  trip_id: string;
+  provider: string | null;
+  pickup_location: string | null;
+  dropoff_location: string | null;
+  pickup_at: string | null;
+  dropoff_at: string | null;
+  booking_status: BookingStatus;
+  booking_url: string | null;
+  confirmation_number: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PendingActivity = {
+  id: string;
+  user_id: string;
+  trip_id: string;
+  title: string;
+  activity_type: string;
+  location: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  booking_status: BookingStatus;
+  booking_url: string | null;
+  confirmation_number: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;

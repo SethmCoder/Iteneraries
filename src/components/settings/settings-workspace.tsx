@@ -14,6 +14,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  useTheme,
+  type ThemePreference,
+} from "@/components/theme/theme-provider";
 import { daysUntil } from "@/lib/billing/period";
 import { PASSWORD_POLICY } from "@/lib/constants";
 import {
@@ -72,6 +76,8 @@ export function SettingsWorkspace({
   initialTab?: string | null;
 }) {
   const router = useRouter();
+  const { preference: themePreference, setPreference: setThemePreference } =
+    useTheme();
   const importsRef = useRef<HTMLElement | null>(null);
   const accountRef = useRef<HTMLElement | null>(null);
   const [renewing, setRenewing] = useState(false);
@@ -198,6 +204,35 @@ export function SettingsWorkspace({
       </div>
       {message ? <p className="text-sm text-success">{message}</p> : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+      <section className="rounded-[12px] border border-border bg-card p-5 shadow-sm">
+        <h2 className="font-semibold">Appearance</h2>
+        <p className="mt-1 text-sm text-muted">
+          Choose light, dark, or match your system setting.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(
+            [
+              ["light", "Light"],
+              ["dark", "Dark"],
+              ["system", "System"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setThemePreference(value as ThemePreference)}
+              className={`rounded-[8px] border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                themePreference === value
+                  ? "border-brand bg-brand text-white"
+                  : "border-border bg-[var(--page-bg)] text-foreground hover:bg-brand-light"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
 
       <section className="rounded-[12px] border border-border bg-card p-5 shadow-sm">
         <h2 className="font-semibold">Profile</h2>
@@ -418,6 +453,10 @@ export function SettingsWorkspace({
         className="rounded-[12px] border border-border bg-card p-5 shadow-sm"
       >
         <h2 className="font-semibold">Award monitoring</h2>
+        <p className="mt-1 text-xs text-muted">
+          Live award inventory APIs are not enabled ($0 stack). Use Flights
+          Pending checklist and free seats.aero website links to research awards.
+        </p>
         <p className="mt-1 text-sm text-muted">
           We look for award seats in this window so alerts arrive when you can
           book. Outside the window, monitoring waits.

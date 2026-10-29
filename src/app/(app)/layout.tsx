@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/app-header";
 import { AccountAccessGate } from "@/components/billing/account-access-gate";
+import { ThemeProvider } from "@/components/theme/theme-provider";
 import {
   demoProfile,
   demoTrips,
@@ -19,15 +20,17 @@ export default async function AppLayout({
 }) {
   if (isDemoModeEnabled() && (await hasDemoSession())) {
     return (
-      <div className="flex min-h-screen flex-col bg-[var(--page-bg)]">
-        <div className="bg-warning/10 px-4 py-2 text-center text-xs font-medium text-warning">
-          Preview mode — UI only. Changes are not saved until Supabase is connected.
+      <ThemeProvider>
+        <div className="flex min-h-screen flex-col bg-[var(--page-bg)]">
+          <div className="bg-warning/10 px-4 py-2 text-center text-xs font-medium text-warning">
+            Preview mode — UI only. Changes are not saved until Supabase is connected.
+          </div>
+          <AppHeader profile={demoProfile()} nextTrip={demoTrips()[0] ?? null} />
+          <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 md:px-6">
+            {children}
+          </main>
         </div>
-        <AppHeader profile={demoProfile()} nextTrip={demoTrips()[0] ?? null} />
-        <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 md:px-6">
-          {children}
-        </main>
-      </div>
+      </ThemeProvider>
     );
   }
 
@@ -80,12 +83,14 @@ export default async function AppLayout({
   if (!profile) redirect("/login");
 
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--page-bg)]">
-      <AccountAccessGate billing={billing} />
-      <AppHeader profile={profile} nextTrip={nextTrip} />
-      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 md:px-6">
-        {children}
-      </main>
-    </div>
+    <ThemeProvider>
+      <div className="flex min-h-screen flex-col bg-[var(--page-bg)]">
+        <AccountAccessGate billing={billing} />
+        <AppHeader profile={profile} nextTrip={nextTrip} />
+        <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5 md:px-6">
+          {children}
+        </main>
+      </div>
+    </ThemeProvider>
   );
 }
