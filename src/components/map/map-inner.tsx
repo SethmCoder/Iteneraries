@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -8,7 +8,6 @@ import {
   Popup,
   Polyline,
   useMap,
-  useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
 import Link from "next/link";
@@ -251,6 +250,9 @@ export default function MapInner({
   className,
   height = "100%",
 }: WaypointMapProps) {
+  const mapDomId = useId();
+  // Avoid Leaflet "Map container is already initialized" on React Strict Mode remounts.
+  const [mapReady, setMapReady] = useState(false);
   const [flyTarget, setFlyTarget] = useState<{ lat: number; lon: number } | null>(
     null,
   );
@@ -258,6 +260,11 @@ export default function MapInner({
     ...POI_CATEGORIES,
   ]);
   const [baseLayer, setBaseLayer] = useState<MapBaseLayer>("streets");
+
+  useEffect(() => {
+    setMapReady(true);
+    return () => setMapReady(false);
+  }, []);
 
   const itineraryOsmIds = useMemo(() => {
     const ids = new Set<string>();
@@ -280,7 +287,10 @@ export default function MapInner({
       className={`relative z-0 isolate overflow-hidden rounded-[12px] border border-border ${className ?? ""}`}
       style={{ height, minHeight: 320 }}
     >
+      {mapReady ? (
       <MapContainer
+        key={mapDomId}
+        id={mapDomId}
         center={[20, 0]}
         zoom={2}
         scrollWheelZoom
@@ -349,6 +359,11 @@ export default function MapInner({
           />
         ) : null}
       </MapContainer>
+      ) : (
+        <div className="flex h-full min-h-[320px] items-center justify-center bg-[var(--page-bg)] text-xs text-muted">
+          Loading map…
+        </div>
+      )}
       <SearchAndFly
         onFly={(lat, lon) => setFlyTarget({ lat, lon })}
       />

@@ -13,13 +13,16 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { APP_NAME } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/client";
+import type { SupabasePublicConfig } from "@/lib/supabase/config";
 import { loginSchema, type LoginInput } from "@/lib/validations/auth";
 
 export function LoginForm({
   supabaseConfigured,
+  supabase,
   demoModeEnabled,
 }: {
   supabaseConfigured: boolean;
+  supabase: SupabasePublicConfig | null;
   demoModeEnabled: boolean;
 }) {
   const router = useRouter();
@@ -50,8 +53,8 @@ export function LoginForm({
       return;
     }
     try {
-      const supabase = createClient();
-      const { error: authError } = await supabase.auth.signInWithPassword({
+      const client = createClient(supabase);
+      const { error: authError } = await client.auth.signInWithPassword({
         email: values.email,
         password: values.password,
       });

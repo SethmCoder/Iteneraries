@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import type { HotelSearchResult } from "@/lib/hotels/types";
@@ -43,50 +43,64 @@ export default function HotelSearchMapInner({
   onSelect?: (hotel: HotelSearchResult) => void;
   height?: string;
 }) {
+  const mapDomId = useId();
+  const [mapReady, setMapReady] = useState(false);
+  useEffect(() => {
+    setMapReady(true);
+    return () => setMapReady(false);
+  }, []);
+
   return (
     <div className="overflow-hidden rounded-[10px] border border-border" style={{ height }}>
-      <MapContainer
-        center={[20, 0]}
-        zoom={2}
-        className="h-full w-full"
-        scrollWheelZoom={false}
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <FitHotels hotels={hotels} />
-        {hotels.map((h) => (
-          <Marker
-            key={h.id}
-            position={[h.lat, h.lon]}
-            icon={priceIcon(h.priceLabel, selectedId === h.id)}
-            eventHandlers={{
-              click: () => onSelect?.(h),
-            }}
-          >
-            <Popup>
-              <div className="max-w-[200px] text-sm">
-                {h.photoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={h.photoUrl}
-                    alt=""
-                    className="mb-2 h-24 w-full rounded object-cover"
-                  />
-                ) : null}
-                <p className="font-semibold">{h.name}</p>
-                <p className="text-xs text-muted">{h.location}</p>
-                <p className="mt-1 text-xs">
-                  {h.averagePriceUsd != null
-                    ? `Avg sample ~$${h.averagePriceUsd}/night`
-                    : "OpenStreetMap location · check Booking.com for rates"}
-                </p>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
+      {mapReady ? (
+        <MapContainer
+          key={mapDomId}
+          center={[20, 0]}
+          zoom={2}
+          className="h-full w-full"
+          scrollWheelZoom={false}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <FitHotels hotels={hotels} />
+          {hotels.map((h) => (
+            <Marker
+              key={h.id}
+              position={[h.lat, h.lon]}
+              icon={priceIcon(h.priceLabel, selectedId === h.id)}
+              eventHandlers={{
+                click: () => onSelect?.(h),
+              }}
+            >
+              <Popup>
+                <div className="max-w-[200px] text-sm">
+                  {h.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={h.photoUrl}
+                      alt=""
+                      className="mb-2 h-24 w-full rounded object-cover"
+                    />
+                  ) : null}
+                  <p className="font-semibold">{h.name}</p>
+                  <p className="text-xs text-muted">{h.location}</p>
+                  <p className="mt-1 text-xs">
+                    {h.averagePriceUsd != null
+                      ? `Avg sample ~$${h.averagePriceUsd}/night`
+                      : "OpenStreetMap location · check Booking.com for rates"}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      ) : (
+        <div className="flex h-full items-center justify-center text-xs text-muted">
+          Loading map…
+        </div>
+      )}
     </div>
   );
 }

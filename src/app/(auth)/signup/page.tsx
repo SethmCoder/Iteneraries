@@ -1,6 +1,12 @@
 import { SignupForm } from "@/components/auth/signup-form";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getSupabasePublicConfig } from "@/lib/supabase/config";
 
 export default function SignupPage() {
-  return <SignupForm supabaseConfigured={isSupabaseConfigured()} />;
+  const supabase = getSupabasePublicConfig();
+  return (
+    <SignupForm
+      supabaseConfigured={Boolean(supabase)}
+      supabase={supabase}
+    />
+  );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import type { ExploreMapMarker } from "./explore-map";
@@ -45,44 +45,58 @@ export default function ExploreMapInner({
   onSelect?: (id: string) => void;
   height?: string;
 }) {
+  const mapDomId = useId();
+  const [mapReady, setMapReady] = useState(false);
+  useEffect(() => {
+    setMapReady(true);
+    return () => setMapReady(false);
+  }, []);
+
   return (
     <div
       className="overflow-hidden rounded-[12px] border border-border"
       style={{ height }}
     >
-      <MapContainer
-        center={[20, 0]}
-        zoom={2}
-        className="h-full w-full"
-        scrollWheelZoom
-        worldCopyJump
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <FitMarkers markers={markers} />
-        {markers.map((m) => (
-          <Marker
-            key={m.id}
-            position={[m.lat, m.lon]}
-            icon={priceIcon(m.label, selectedId === m.id)}
-            eventHandlers={{
-              click: () => onSelect?.(m.id),
-            }}
-          >
-            <Popup>
-              <div className="max-w-[220px] text-sm">
-                <p className="font-semibold">{m.title}</p>
-                {m.subtitle ? (
-                  <p className="text-xs text-muted">{m.subtitle}</p>
-                ) : null}
-                <p className="mt-1 text-xs font-medium">{m.label}</p>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
+      {mapReady ? (
+        <MapContainer
+          key={mapDomId}
+          center={[20, 0]}
+          zoom={2}
+          className="h-full w-full"
+          scrollWheelZoom
+          worldCopyJump
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <FitMarkers markers={markers} />
+          {markers.map((m) => (
+            <Marker
+              key={m.id}
+              position={[m.lat, m.lon]}
+              icon={priceIcon(m.label, selectedId === m.id)}
+              eventHandlers={{
+                click: () => onSelect?.(m.id),
+              }}
+            >
+              <Popup>
+                <div className="max-w-[220px] text-sm">
+                  <p className="font-semibold">{m.title}</p>
+                  {m.subtitle ? (
+                    <p className="text-xs text-muted">{m.subtitle}</p>
+                  ) : null}
+                  <p className="mt-1 text-xs font-medium">{m.label}</p>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      ) : (
+        <div className="flex h-full items-center justify-center text-xs text-muted">
+          Loading map…
+        </div>
+      )}
     </div>
   );
 }

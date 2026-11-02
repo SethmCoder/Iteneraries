@@ -11,12 +11,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PASSWORD_POLICY } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/client";
+import type { SupabasePublicConfig } from "@/lib/supabase/config";
 import { signupSchema, type SignupInput } from "@/lib/validations/auth";
 
 export function SignupForm({
   supabaseConfigured,
+  supabase,
 }: {
   supabaseConfigured: boolean;
+  supabase: SupabasePublicConfig | null;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -36,8 +39,8 @@ export function SignupForm({
       return;
     }
     try {
-      const supabase = createClient();
-      const { data: existing } = await supabase
+      const client = createClient(supabase);
+      const { data: existing } = await client
         .from("profiles")
         .select("id")
         .ilike("username", values.username)
@@ -47,7 +50,7 @@ export function SignupForm({
         return;
       }
 
-      const { data, error: authError } = await supabase.auth.signUp({
+      const { data, error: authError } = await client.auth.signUp({
         email: values.email,
         password: values.password,
         options: {
