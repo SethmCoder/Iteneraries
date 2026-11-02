@@ -83,11 +83,6 @@ export function HotelsPendingWorkspace({
   const [selectedHotelId, setSelectedHotelId] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [pricesConfigured, setPricesConfigured] = useState(false);
-  const [searchProvider, setSearchProvider] = useState<
-    "google" | "openstreetmap" | null
-  >(null);
-  const [googleConfigured, setGoogleConfigured] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -119,9 +114,7 @@ export function HotelsPendingWorkspace({
     const priceNote =
       hotel.averagePriceUsd != null
         ? `Sample avg ~$${hotel.averagePriceUsd}/night (OTA snapshot)`
-        : hotel.source === "google"
-          ? `Google lodging${hotel.rating != null ? ` · ${hotel.rating.toFixed(1)}★` : ""}${hotel.priceLabel !== "Rates" ? ` · ${hotel.priceLabel}` : ""}`
-          : "Rates via Booking/Google — OpenStreetMap location";
+        : "Rates via Booking.com — OpenStreetMap location";
     patch({
       hotelName: hotel.name,
       location: hotel.location,
@@ -159,14 +152,8 @@ export function HotelsPendingWorkspace({
       }
       const data = (await res.json()) as {
         results?: HotelSearchResult[];
-        pricesConfigured?: boolean;
-        provider?: "google" | "openstreetmap";
-        googleConfigured?: boolean;
       };
       setSearchResults(data.results ?? []);
-      setPricesConfigured(Boolean(data.pricesConfigured));
-      setSearchProvider(data.provider ?? data.results?.[0]?.source ?? null);
-      setGoogleConfigured(Boolean(data.googleConfigured));
       setSelectedHotelId(null);
     } catch {
       setSearchResults([]);
@@ -276,9 +263,7 @@ export function HotelsPendingWorkspace({
           <h1 className="text-2xl font-semibold text-foreground">Hotels Pending</h1>
           <p className="mt-1 text-sm text-muted">
             Assign hotels to a trip and track what still needs booking. Search
-            uses Google Places lodging (photos + map) when{" "}
-            <code className="text-xs">GOOGLE_PLACES_API_KEY</code> is set,
-            otherwise OpenStreetMap.
+            uses OpenStreetMap (Nominatim + Overpass); rates open on Booking.com.
           </p>
         </div>
         {tripId ? (
@@ -360,18 +345,10 @@ export function HotelsPendingWorkspace({
                 <div className="space-y-3 rounded-[10px] border border-border bg-[var(--page-bg)] p-3">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-                      {searchProvider === "google"
-                        ? "Google Hotels / Places"
-                        : "Hotel map (OpenStreetMap)"}
+                      Hotel map (OpenStreetMap)
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted">
-                      {searchProvider === "google"
-                        ? "Lodging options from Google Places — map pins, photos, ratings, and price level when available."
-                        : googleConfigured
-                          ? "Google returned no lodging matches; showing OpenStreetMap fallback."
-                          : pricesConfigured
-                            ? "Pins show sample average nightly rates when matched."
-                            : "Add GOOGLE_PLACES_API_KEY for Google lodging photos & price levels. Click a result to fill the form."}
+                      Click a result to fill the form. Rates open on Booking.com.
                     </p>
                   </div>
                   {searchLoading ? (
@@ -379,10 +356,7 @@ export function HotelsPendingWorkspace({
                   ) : searchResults.length === 0 ? (
                     <p className="text-xs text-muted">
                       No hotels found. Try a brand + city (e.g. “Villa Fontaine
-                      Tokyo”)
-                      {!googleConfigured
-                        ? ", or set GOOGLE_PLACES_API_KEY for Google lodging search."
-                        : "."}
+                      Tokyo”).
                     </p>
                   ) : (
                     <>
@@ -442,7 +416,7 @@ export function HotelsPendingWorkspace({
                                   className="text-xs text-muted underline-offset-2 hover:underline"
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  {h.source === "google" ? "Google" : "OTA"}
+                                  Rates
                                 </a>
                               </span>
                             </button>

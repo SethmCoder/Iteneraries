@@ -10,24 +10,6 @@ import {
   mintApproveToken,
   verifyApproveToken,
 } from "@/lib/flights/approve-token";
-import {
-  awardWalletProviderForProgram,
-  waypointProgramFromProvider,
-} from "@/lib/loyalty/program-codes";
-
-describe("program code mapping", () => {
-  it("maps Waypoint programs to AwardWallet providers", () => {
-    expect(awardWalletProviderForProgram("singapore")).toBe("singapore");
-    expect(awardWalletProviderForProgram("american")).toBe("aa");
-    expect(awardWalletProviderForProgram("alaska")).toBe("alaskaair");
-  });
-
-  it("maps providers back to Waypoint ids", () => {
-    expect(waypointProgramFromProvider("aa")).toBe("american");
-    expect(waypointProgramFromProvider("singapore")).toBe("singapore");
-    expect(waypointProgramFromProvider("krisflyer")).toBe("singapore");
-  });
-});
 
 describe("award check window", () => {
   it("converts time inputs", () => {

@@ -9,9 +9,8 @@ Waypoint is a business travel planning web application. Create trips, build chro
 - Leaflet + OpenStreetMap tiles (free)
 - Overpass / Nominatim / FOSSGIS OSRM (free public endpoints; no keys)
 - Resend — **free tier** for outbound/inbound email
-- AwardWallet Account Access API — **free** for OAuth balance sync
-- OpenAI-compatible AI — use a **free** provider (e.g. Groq); paid OpenAI optional
-- Seats.aero Partner API — **optional paid**; not required to use the app
+- OpenAI-compatible AI — prefer a **free** provider (e.g. Groq)
+- Award research via free [seats.aero](https://seats.aero) website links (no Partner API)
 
 ## Preview without Supabase
 
@@ -39,10 +38,8 @@ Then open `/login` and click **Enter preview**. You’ll get sample Paris trip d
 | Public transit routing | Requires `TRANSIT_ROUTER_URL` (OpenTripPlanner + regional GTFS; no free global demo) |
 | AI Suggest Itinerary | Optional free Groq (or other OpenAI-compatible) key |
 | Email import | Optional Resend Free + free AI key for extraction |
-| Flights / Hotels Pending | Works; OpenFlights airport + route data (free, bundled) |
-| Live award API polling | Optional legacy; not used by Pending UIs |
-| Live loyalty sync | Optional legacy AwardWallet OAuth |
-| Award monitoring cron | Optional; needs `CRON_SECRET` if enabled |
+| Flights / Hotels Pending | Works; OpenFlights + OSM hotel search (free) |
+| Account lifecycle cron | Optional; needs `CRON_SECRET` when deployed |
 
 ## Local setup
 
@@ -59,12 +56,16 @@ Open [http://localhost:3000](http://localhost:3000).
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. Copy **Project URL**, **anon key**, and **service role key** into `.env.local`.
-3. In the SQL editor, run the single migration:
+3. In the SQL editor, run the compiled schema for a **fresh** project:
 
-   - [`supabase/migrations/20241027000000_initial_schema.sql`](supabase/migrations/20241027000000_initial_schema.sql)
+   - [`supabase/schema.sql`](supabase/schema.sql)
+
+   Copy from the raw file in your editor (or `pbcopy < supabase/schema.sql` on macOS), then paste into the Supabase SQL editor. Do not copy from a Markdown preview — that turns `--` comments into `-` and causes a syntax error.
+
+   Existing projects should use `supabase/migrations/` (or `npx supabase db push`) instead of re-running `schema.sql`.
 
 4. Confirm Auth email settings (enable/disable email confirmation as desired).
-5. Storage bucket `avatars` and RLS policies are created by the initial migration.
+5. Storage bucket `avatars` and RLS policies are created by the schema.
 
 Optional CLI:
 
@@ -78,11 +79,9 @@ See [`.env.example`](.env.example) for the full list.
 
 **Required (free):** Supabase URL + anon + service role, `NEXT_PUBLIC_APP_URL`.
 
-**Recommended free:** `CRON_SECRET`, Resend Free (`RESEND_*`), AwardWallet Account Access (`AWARDWALLET_API_KEY`), Groq (or similar) for AI.
+**Recommended free:** `CRON_SECRET`, Resend Free (`RESEND_*`), Groq (or similar) for AI.
 
-**Optional paid (not required):** `SEATS_AERO_API_KEY`, AwardWallet Web Parsing (`AWARDWALLET_WEB_*`).
-
-See [`.env.example`](.env.example) for the full annotated list.
+See [`.env.example`](.env.example) for the full annotated list. No paid API keys.
 
 ## Account access periods
 

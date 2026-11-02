@@ -80,9 +80,7 @@ export default function HotelSearchMapInner({
                 <p className="mt-1 text-xs">
                   {h.averagePriceUsd != null
                     ? `Avg sample ~$${h.averagePriceUsd}/night`
-                    : h.source === "google"
-                      ? `${h.priceLabel}${h.rating != null ? ` · ${h.rating.toFixed(1)}★` : ""}`
-                      : "OpenStreetMap location · check OTA for rates"}
+                    : "OpenStreetMap location · check Booking.com for rates"}
                 </p>
               </div>
             </Popup>

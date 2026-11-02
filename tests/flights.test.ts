@@ -7,7 +7,6 @@ import {
   type AwardSearchQuery,
 } from "@/lib/flights/provider";
 import { awardSearchFormSchema } from "@/lib/flights/schema";
-import { mapSeatsAeroRow } from "@/lib/flights/seats-aero";
 
 const baseQuery: AwardSearchQuery = {
   origin: "SFO",
@@ -149,32 +148,6 @@ describe("applyPreferenceFilters", () => {
     );
     expect(filtered).toHaveLength(1);
     expect(filtered[0].compromises.join(" ")).toMatch(/Airline/i);
-  });
-});
-
-describe("mapSeatsAeroRow", () => {
-  it("maps a business cabin availability row", () => {
-    const mapped = mapSeatsAeroRow(
-      {
-        ID: "row-1",
-        Date: "2026-11-11",
-        Source: "united",
-        Route: { OriginAirport: "SFO", DestinationAirport: "NRT" },
-        JAvailable: true,
-        JMileageCost: "85000",
-        JAirlines: "UA",
-        JDirect: true,
-        JTaxes: "150.5",
-        ComputedLastSeen: "2026-10-27T00:00:00Z",
-      },
-      baseQuery,
-    );
-    expect(mapped).not.toBeNull();
-    expect(mapped!.pointsPerPassenger).toBe(85000);
-    expect(mapped!.cabin).toBe("business");
-    expect(mapped!.availabilityStatus).toBe("estimated");
-    expect(mapped!.provider).toBe("seats_aero");
-    expect(mapped!.bookingUrl).toContain("seats.aero");
   });
 });
 

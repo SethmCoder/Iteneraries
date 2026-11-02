@@ -87,14 +87,6 @@ export function getResendWebhookSecret(): string | null {
   return process.env.RESEND_WEBHOOK_SECRET ?? null;
 }
 
-export function isAwardSearchConfigured(): boolean {
-  return Boolean(process.env.SEATS_AERO_API_KEY?.trim());
-}
-
-export function getSeatsAeroApiKey(): string | null {
-  return process.env.SEATS_AERO_API_KEY?.trim() || null;
-}
-
 export function getCronSecret(): string | null {
   return process.env.CRON_SECRET?.trim() || null;
 }
@@ -112,32 +104,6 @@ export function isOutboundEmailConfigured(): boolean {
   return Boolean(getResendApiKey() && getResendFromEmail());
 }
 
-/** AwardWallet Business Account Access API key (X-Authentication). */
-export function getAwardWalletApiKey(): string | null {
-  return process.env.AWARDWALLET_API_KEY?.trim() || null;
-}
-
-/**
- * AwardWallet Web Parsing auth (`username:password` for X-Authentication).
- * Prefer AWARDWALLET_WEB_USER + AWARDWALLET_WEB_PASSWORD, or AWARDWALLET_WEB_AUTH.
- */
-export function getAwardWalletWebAuth(): string | null {
-  const combined = process.env.AWARDWALLET_WEB_AUTH?.trim();
-  if (combined?.includes(":")) return combined;
-  const user = process.env.AWARDWALLET_WEB_USER?.trim();
-  const pass = process.env.AWARDWALLET_WEB_PASSWORD?.trim();
-  if (user && pass) return `${user}:${pass}`;
-  return null;
-}
-
-export function isWebParseConfigured(): boolean {
-  return Boolean(getAwardWalletWebAuth());
-}
-
-export function isLoyaltyLinkConfigured(): boolean {
-  return Boolean(getAwardWalletApiKey());
-}
-
 /** HMAC secret for approve-to-book email links. */
 export function getApproveTokenSecret(): string | null {
   return (
@@ -145,29 +111,4 @@ export function getApproveTokenSecret(): string | null {
     process.env.CRON_SECRET?.trim() ||
     null
   );
-}
-
-/** Optional Makcorps JWT for free city hotel rate samples (price tags). */
-export function getMakcorpsJwt(): string | null {
-  return process.env.MAKCORPS_JWT?.trim() || null;
-}
-
-export function isHotelPriceEnrichmentConfigured(): boolean {
-  return Boolean(getMakcorpsJwt());
-}
-
-/**
- * Google Places API (New) key — Text Search lodging + Place Photos.
- * Enable “Places API (New)” in Google Cloud; free monthly credit applies.
- */
-export function getGooglePlacesApiKey(): string | null {
-  return (
-    process.env.GOOGLE_PLACES_API_KEY?.trim() ||
-    process.env.GOOGLE_MAPS_API_KEY?.trim() ||
-    null
-  );
-}
-
-export function isGoogleHotelsConfigured(): boolean {
-  return Boolean(getGooglePlacesApiKey());
 }

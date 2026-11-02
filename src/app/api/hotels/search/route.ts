@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
 import { getRequestUserId } from "@/lib/auth-guard";
-import {
-  isGoogleHotelsConfigured,
-  isHotelPriceEnrichmentConfigured,
-} from "@/lib/env";
 import { searchHotels } from "@/lib/hotels/search";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -24,23 +20,14 @@ export async function GET(request: Request) {
     if (q.trim().length < 2) {
       return NextResponse.json({
         results: [],
-        provider: isGoogleHotelsConfigured() ? "google" : "openstreetmap",
-        pricesConfigured: isHotelPriceEnrichmentConfigured(),
+        provider: "openstreetmap",
       });
     }
 
     const results = await searchHotels(q, 20);
-    const provider =
-      results[0]?.source === "google"
-        ? "google"
-        : isGoogleHotelsConfigured()
-          ? "google"
-          : "openstreetmap";
     return NextResponse.json({
       results,
-      provider: results.length ? results[0]?.source ?? provider : provider,
-      pricesConfigured: isHotelPriceEnrichmentConfigured(),
-      googleConfigured: isGoogleHotelsConfigured(),
+      provider: "openstreetmap",
     });
   } catch (e) {
     return NextResponse.json(

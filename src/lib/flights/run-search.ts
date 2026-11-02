@@ -1,13 +1,9 @@
-import { getAppUrl, isAwardSearchConfigured } from "@/lib/env";
+import { getAppUrl } from "@/lib/env";
 import {
   buildApprovePath,
   mintApproveToken,
 } from "@/lib/flights/approve-token";
-import {
-  searchFromAwardRow,
-  type AwardOption,
-} from "@/lib/flights/provider";
-import { getAwardProvider } from "@/lib/flights/seats-aero";
+import type { AwardOption } from "@/lib/flights/provider";
 import type { AwardSearch, AwardSearchStatus } from "@/types/database";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -18,38 +14,20 @@ export type RunSearchOutcome = {
   setupRequired?: boolean;
 };
 
+/**
+ * Live award inventory APIs were removed (no paid Seats.aero Partner key).
+ * Searches stay in setup_required; users research via free seats.aero website links.
+ */
 export async function executeAwardSearch(
-  search: AwardSearch,
-  programs: string[],
+  _search: AwardSearch,
+  _programs: string[],
 ): Promise<RunSearchOutcome> {
-  if (!isAwardSearchConfigured()) {
-    return {
-      status: "setup_required",
-      options: [],
-      setupRequired: true,
-      error:
-        "SEATS_AERO_API_KEY is not configured. Searches are saved but live award inventory is unavailable.",
-    };
-  }
-
-  const provider = await getAwardProvider();
-  const result = await provider.search(searchFromAwardRow(search, programs));
-  if (!result.ok) {
-    return {
-      status: result.setupRequired
-        ? "setup_required"
-        : search.status === "paused"
-          ? "paused"
-          : "monitoring",
-      options: [],
-      error: result.error,
-      setupRequired: result.setupRequired,
-    };
-  }
-
   return {
-    status: result.options.length > 0 ? "match_found" : "monitoring",
-    options: result.options,
+    status: "setup_required",
+    options: [],
+    setupRequired: true,
+    error:
+      "Live award inventory is not available in the free stack. Use seats.aero website links from Flights Pending.",
   };
 }
 
@@ -124,9 +102,9 @@ export async function notifyAwardMatches(
     prefs?.award_approve_to_book !== false || search.require_booking_approval;
 
   let ctaPath = "/flights";
-  let ctaLabel = "Open Flight Booker";
+  let ctaLabel = "Open Flights Pending";
   let emailExtra =
-    "<p>Review the itinerary in Flight Booker. Booking always happens on the airline site after you confirm.</p>";
+    "<p>Review the itinerary in Flights Pending. Booking always happens on the airline site after you confirm.</p>";
 
   if (approveRequired && top.bookingUrl) {
     try {
@@ -142,9 +120,9 @@ export async function notifyAwardMatches(
       });
       ctaLabel = "Approve & book";
       const absolute = `${getAppUrl().replace(/\/+$/, "")}${ctaPath}`;
-      emailExtra = `<p><a href="${absolute}">Approve &amp; book</a> opens the airline booking site. Waypoint does not spend your miles for you.</p><p><a href="${getAppUrl().replace(/\/+$/, "")}/flights">Review in Flight Booker</a> without booking.</p>`;
+      emailExtra = `<p><a href="${absolute}">Approve &amp; book</a> opens the airline booking site. Waypoint does not spend your miles for you.</p><p><a href="${getAppUrl().replace(/\/+$/, "")}/flights">Review in Flights Pending</a> without booking.</p>`;
     } catch {
-      // Missing secret — fall back to Flight Booker link
+      // Missing secret — fall back to Flights Pending link
     }
   }
 

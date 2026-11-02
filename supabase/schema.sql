@@ -1,11 +1,16 @@
--- Waypoint compiled schema (reference / fresh bootstrap).
--- Migrations in supabase/migrations/ remain canonical for existing projects.
--- Generated from initial + incremental migrations; do not apply on top of an already-migrated DB without review.
+/*
+  Waypoint compiled schema (reference / fresh bootstrap).
+  Migrations in supabase/migrations/ remain canonical for existing projects.
+  Do not apply on top of an already-migrated DB without review.
 
--- >>> BEGIN 20241027000000_initial_schema.sql
--- Waypoint full schema (single migration — never applied incrementally)
--- Profiles, trips, itinerary, friends, email import, preferences,
--- transport, flight booker / loyalty, account billing, RLS, storage, realtime
+  Tip: paste from the raw .sql file (or: pbcopy < supabase/schema.sql).
+  If comments start with a single "-", the paste went through Markdown and will fail.
+*/
+
+/* >>> BEGIN 20241027000000_initial_schema.sql */
+/* Waypoint full schema (single migration - never applied incrementally).
+   Profiles, trips, itinerary, friends, email import, preferences,
+   transport, flight booker / loyalty, account billing, RLS, storage, realtime */
 
 create extension if not exists "pgcrypto";
 

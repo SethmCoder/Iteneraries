@@ -1,10 +1,7 @@
 import {
   getGeocoderUserAgent,
-  getMakcorpsJwt,
   getNominatimBaseUrl,
-  isGoogleHotelsConfigured,
 } from "@/lib/env";
-import { searchGoogleHotels } from "@/lib/hotels/google-places";
 import { searchOverpassAccommodations } from "@/lib/hotels/overpass-accommodation";
 import type { HotelSearchResult } from "@/lib/hotels/types";
 
@@ -37,11 +34,6 @@ type NominatimHotelRow = {
 function bookingSearchUrl(name: string, location: string): string {
   const ss = [name, location].filter(Boolean).join(" ").trim();
   return `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(ss)}`;
-}
-
-function googleHotelsUrl(name: string, location: string): string {
-  const q = [name, location].filter(Boolean).join(" ").trim();
-  return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
 }
 
 function shortLocation(row: NominatimHotelRow): {
@@ -131,98 +123,9 @@ async function fetchNominatimHotels(
   return raw;
 }
 
-function fuzzyNameMatch(a: string, b: string): boolean {
-  const na = a.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const nb = b.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  if (!na || !nb) return false;
-  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
-  const ta = new Set(na.split(" ").filter((t) => t.length > 2));
-  const tb = nb.split(" ").filter((t) => t.length > 2);
-  let hits = 0;
-  for (const t of tb) if (ta.has(t)) hits += 1;
-  return hits >= 2;
-}
-
-type CityPriceSample = { hotelName: string; avg: number };
-
-async function fetchCityPriceSamples(city: string): Promise<CityPriceSample[]> {
-  const jwt = getMakcorpsJwt();
-  if (!jwt || !city.trim()) return [];
-
-  const slug = encodeURIComponent(city.trim().toLowerCase().split(",")[0]!.trim());
-  const url = `https://api.makcorps.com/free/${slug}`;
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `JWT ${jwt}`,
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    });
-    if (!response.ok) return [];
-    const raw = (await response.json()) as unknown;
-    if (!Array.isArray(raw)) return [];
-
-    const samples: CityPriceSample[] = [];
-    for (const entry of raw) {
-      if (!Array.isArray(entry) || entry.length < 2) continue;
-      const meta = entry[0] as { hotelName?: string };
-      const vendors = entry[1] as Array<Record<string, string | null>>;
-      if (!meta?.hotelName || !Array.isArray(vendors)) continue;
-      const prices: number[] = [];
-      for (const v of vendors) {
-        for (const [key, val] of Object.entries(v)) {
-          if (!key.startsWith("price") || val == null) continue;
-          const n = Number(String(val).replace(/[^0-9.]/g, ""));
-          if (Number.isFinite(n) && n > 0) prices.push(n);
-        }
-      }
-      if (!prices.length) continue;
-      const avg = Math.round(prices.reduce((s, p) => s + p, 0) / prices.length);
-      samples.push({ hotelName: meta.hotelName, avg });
-    }
-    return samples;
-  } catch {
-    return [];
-  }
-}
-
-async function enrichPrices(
-  hotels: HotelSearchResult[],
-): Promise<HotelSearchResult[]> {
-  if (!getMakcorpsJwt() || hotels.length === 0) return hotels;
-
-  const cities = [
-    ...new Set(
-      hotels
-        .map((h) => h.city)
-        .filter((c): c is string => Boolean(c)),
-    ),
-  ].slice(0, 4);
-
-  const byCity = new Map<string, CityPriceSample[]>();
-  await Promise.all(
-    cities.map(async (city) => {
-      byCity.set(city.toLowerCase(), await fetchCityPriceSamples(city));
-    }),
-  );
-
-  return hotels.map((h) => {
-    const samples = h.city ? byCity.get(h.city.toLowerCase()) ?? [] : [];
-    const match = samples.find((s) => fuzzyNameMatch(s.hotelName, h.name));
-    if (!match) return h;
-    return {
-      ...h,
-      averagePriceUsd: match.avg,
-      priceLabel: `$${match.avg}`,
-    };
-  });
-}
-
 /**
- * Search hotels by brand or name.
- * Prefers Google Places lodging Text Search when GOOGLE_PLACES_API_KEY is set
- * (photos, ratings, price level, map coords). Falls back to OpenStreetMap.
+ * Search hotels by brand or name via OpenStreetMap (Nominatim + Overpass).
+ * No paid hotel APIs — Booking.com links for rates.
  */
 export async function searchHotels(
   query: string,
@@ -230,15 +133,6 @@ export async function searchHotels(
 ): Promise<HotelSearchResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
-
-  if (isGoogleHotelsConfigured()) {
-    try {
-      const googleHits = await searchGoogleHotels(q, limit);
-      if (googleHits.length > 0) return googleHits;
-    } catch {
-      // Fall through to Nominatim
-    }
-  }
 
   const raw = await fetchNominatimHotels(q, limit);
   const filtered = raw
@@ -324,15 +218,5 @@ export async function searchHotels(
     }
   }
 
-  const enriched = await enrichPrices(hotels);
-  // Attach Google Hotels as alternate when no numeric price (used by UI links)
-  return enriched.map((h) =>
-    h.averagePriceUsd == null
-      ? {
-          ...h,
-          // Keep Booking as primary; Google is discoverable via same ss query style
-          bookingSearchUrl: h.bookingSearchUrl || googleHotelsUrl(h.name, h.location),
-        }
-      : h,
-  );
+  return hotels;
 }
