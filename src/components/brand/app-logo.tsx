@@ -10,11 +10,11 @@ type AppLogoProps = {
   wordmarkClassName?: string;
 };
 
-/** Mark aspect ≈ 1024×719 from the extracted brand PNG. */
+/** Mark aspect from Adobe-split waypoint-mark.svg (~1024×760). */
 const sizes = {
-  sm: { markW: 40, markH: 28, text: "text-base" },
-  md: { markW: 52, markH: 36, text: "text-lg" },
-  lg: { markW: 72, markH: 50, text: "text-2xl" },
+  sm: { markW: 40, markH: 30, text: "text-base" },
+  md: { markW: 52, markH: 39, text: "text-lg" },
+  lg: { markW: 72, markH: 53, text: "text-2xl" },
 };
 
 export function AppLogo({
@@ -27,8 +27,8 @@ export function AppLogo({
   const s = sizes[size];
   const textColor = inverted ? "text-white" : "text-[#0F3A45]";
   const src = inverted
-    ? "/brand/waypoint-mark-inverted.png"
-    : "/brand/waypoint-mark.png";
+    ? "/brand/waypoint-mark-inverted.svg"
+    : "/brand/waypoint-mark.svg";
 
   return (
     <div className={cn("flex items-center gap-2", className)}>

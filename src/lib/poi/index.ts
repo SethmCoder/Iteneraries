@@ -1,6 +1,6 @@
 import { getCache, makeCacheKey, setCache, snapBounds } from "@/lib/poi/cache";
 import { dedupePlaces } from "@/lib/poi/dedupe";
-import { fetchPoisFromOverpass } from "@/lib/poi/overpass";
+import { fetchPoisBatched } from "@/lib/poi/overpass";
 import type {
   PoiCategory,
   PoiPlace,
@@ -78,12 +78,15 @@ export async function getPoisForViewport(
 
   let fetchPromise = inFlight.get(key);
   if (!fetchPromise) {
-    fetchPromise = fetchPoisFromOverpass({
+    // Bound Overpass work; abort orphans if the HTTP request is cancelled.
+    const timeoutSeconds = categories.length > 4 ? 12 : 15;
+    fetchPromise = fetchPoisBatched({
       ...snapped,
       categories,
       limit,
       signal,
       majorOnly: getBandConfig(zoom).majorOnly,
+      timeoutSeconds,
     })
       .then((fetched) => {
         const places = dedupePlaces(fetched);
@@ -106,7 +109,12 @@ export async function getPoisForViewport(
 }
 
 export { dedupePlaces } from "@/lib/poi/dedupe";
-export { fetchPoisFromOverpass, parseOverpassElements } from "@/lib/poi/overpass";
+export {
+  fetchPoisBatched,
+  fetchPoisFromOverpass,
+  parseOverpassElements,
+  splitCategoryBatches,
+} from "@/lib/poi/overpass";
 export { clearCache, clearPoiCache, getCached, makeCacheKey, setCached } from "@/lib/poi/cache";
 export * from "@/lib/poi/types";
 export * from "@/lib/poi/zoom-config";

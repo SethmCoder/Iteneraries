@@ -183,6 +183,45 @@ async function postOverpassQuery(
   });
 }
 
+async function fetchFromEndpoint(
+  endpoint: string,
+  query: string,
+  categories: readonly PoiCategory[],
+  signal?: AbortSignal,
+): Promise<PoiPlace[]> {
+  const response = await postOverpassQuery(endpoint, query, signal);
+  if (!response.ok) {
+    throw new OverpassError(
+      response.status === 429
+        ? "Overpass is rate limiting requests. Try again shortly."
+        : `Overpass responded with status ${response.status}.`,
+      response.status,
+    );
+  }
+
+  let json: { elements?: OverpassElement[]; remark?: string };
+  try {
+    json = (await response.json()) as typeof json;
+  } catch {
+    throw new OverpassError("Overpass returned an invalid JSON response.");
+  }
+
+  const elements = Array.isArray(json.elements) ? json.elements : [];
+  if (
+    json.remark &&
+    /error|timed out|out of memory/i.test(json.remark) &&
+    elements.length === 0
+  ) {
+    throw new OverpassError(`Overpass query failed: ${json.remark}`);
+  }
+
+  return parseOverpassElements(elements, categories);
+}
+
+/**
+ * Race configured Overpass mirrors; first successful parse wins and the rest
+ * are aborted so a slow primary does not block a healthy mirror.
+ */
 export async function fetchPoisFromOverpass(
   params: FetchPoisParams,
 ): Promise<PoiPlace[]> {
@@ -194,60 +233,89 @@ export async function fetchPoisFromOverpass(
   }
 
   const query = buildOverpassQuery(params);
-  let lastError: OverpassError | null = null;
+  const endpoints = overpassEndpoints();
+  const raceController = new AbortController();
+  const onParentAbort = () => raceController.abort(signal?.reason);
+  signal?.addEventListener("abort", onParentAbort);
 
-  for (const endpoint of overpassEndpoints()) {
-    if (signal?.aborted) {
-      throw signal.reason ?? new DOMException("Aborted", "AbortError");
-    }
+  const linkedSignal = raceController.signal;
 
-    let response: Response;
+  try {
+    const errors: OverpassError[] = [];
+    const attempts = endpoints.map(async (endpoint) => {
+      try {
+        return await fetchFromEndpoint(endpoint, query, categories, linkedSignal);
+      } catch (error) {
+        if (isAbort(error, linkedSignal) || isAbort(error, signal)) throw error;
+        const wrapped =
+          error instanceof OverpassError
+            ? error
+            : new OverpassError(
+                `Overpass request failed: ${error instanceof Error ? error.message : "network error"}`,
+              );
+        errors.push(wrapped);
+        throw wrapped;
+      }
+    });
+
     try {
-      response = await postOverpassQuery(endpoint, query, signal);
+      const places = await Promise.any(attempts);
+      // Cancel losing mirrors after the first success.
+      raceController.abort();
+      return places;
     } catch (error) {
-      if (isAbort(error, signal)) throw error;
-      lastError = new OverpassError(
-        `Overpass request failed: ${error instanceof Error ? error.message : "network error"}`,
+      if (signal?.aborted || isAbort(error, signal)) {
+        throw signal?.reason ?? new DOMException("Aborted", "AbortError");
+      }
+      throw (
+        errors[errors.length - 1] ??
+        new OverpassError("Overpass request failed on all configured endpoints.")
       );
-      continue;
     }
+  } finally {
+    signal?.removeEventListener("abort", onParentAbort);
+  }
+}
 
-    if (!response.ok) {
-      lastError = new OverpassError(
-        response.status === 429
-          ? "Overpass is rate limiting requests. Try again shortly."
-          : `Overpass responded with status ${response.status}.`,
-        response.status,
-      );
-      // Try the next mirror on client / server errors that often mean a bad mirror.
-      if ([406, 504, 502, 429, 403].includes(response.status)) continue;
-      throw lastError;
-    }
+/** Category groups that can be queried in parallel (smaller Overpass QL). */
+export function splitCategoryBatches(
+  categories: readonly PoiCategory[],
+): PoiCategory[][] {
+  if (categories.length <= 3) return [[...categories]];
 
-    let json: { elements?: OverpassElement[]; remark?: string };
-    try {
-      json = (await response.json()) as typeof json;
-    } catch (error) {
-      if (isAbort(error, signal)) throw error;
-      lastError = new OverpassError("Overpass returned an invalid JSON response.");
-      continue;
-    }
-
-    const elements = Array.isArray(json.elements) ? json.elements : [];
+  const sights: PoiCategory[] = [];
+  const amenities: PoiCategory[] = [];
+  for (const category of categories) {
     if (
-      json.remark &&
-      /error|timed out|out of memory/i.test(json.remark) &&
-      elements.length === 0
+      category === "restaurants" ||
+      category === "cafes" ||
+      category === "shopping"
     ) {
-      lastError = new OverpassError(`Overpass query failed: ${json.remark}`);
-      continue;
+      amenities.push(category);
+    } else {
+      sights.push(category);
     }
-
-    return parseOverpassElements(elements, categories);
   }
 
-  throw (
-    lastError ??
-    new OverpassError("Overpass request failed on all configured endpoints.")
+  const batches = [sights, amenities].filter((b) => b.length > 0);
+  return batches.length > 0 ? batches : [[...categories]];
+}
+
+/**
+ * Fetch POIs, splitting dense category sets into parallel Overpass queries.
+ */
+export async function fetchPoisBatched(
+  params: FetchPoisParams,
+): Promise<PoiPlace[]> {
+  const batches = splitCategoryBatches(params.categories);
+  if (batches.length <= 1) {
+    return fetchPoisFromOverpass(params);
+  }
+
+  const results = await Promise.all(
+    batches.map((categories) =>
+      fetchPoisFromOverpass({ ...params, categories }),
+    ),
   );
+  return dedupePlaces(results.flat());
 }

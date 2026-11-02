@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Building2, Menu, Plane, Users, X } from "lucide-react";
+import { Bell, Building2, Compass, Menu, Plane, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppLogo } from "@/components/brand/app-logo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -130,6 +130,18 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
             </span>
           )}
           <Link
+            href="/explore"
+            className={cn(
+              "rounded-[8px] px-3 py-1.5 text-sm font-medium transition-colors duration-150 hover:bg-white/10",
+              pathname.startsWith("/explore") && "bg-white/15",
+            )}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <Compass className="h-4 w-4" />
+              Explore
+            </span>
+          </Link>
+          <Link
             href="/social"
             className={cn(
               "rounded-[8px] px-3 py-1.5 text-sm font-medium transition-colors duration-150 hover:bg-white/10",
@@ -235,6 +247,10 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
                 <Building2 className="mr-2 h-4 w-4" />
                 Hotels Pending
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/explore")}>
+                <Compass className="mr-2 h-4 w-4" />
+                Award Explorer
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => router.push("/bookings")}>
                 Bookings
               </DropdownMenuItem>
@@ -287,6 +303,7 @@ export function AppHeader({ profile, nextTrip }: AppHeaderProps) {
                 { href: "/social", label: "Social" },
                 { href: "/flights", label: "Flights Pending" },
                 { href: "/hotels", label: "Hotels Pending" },
+                { href: "/explore", label: "Award Explorer" },
                 { href: "/bookings", label: "Bookings" },
                 { href: "/suggester", label: "Itinerary Suggester" },
                 { href: "/saved-places", label: "Saved Places" },

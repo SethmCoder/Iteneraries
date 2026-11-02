@@ -10,7 +10,13 @@ import {
   setCached,
   shouldFetchPois,
   getZoomBand,
+  splitCategoryBatches,
 } from "@/lib/poi";
+import {
+  clearClientPoiCache,
+  getClientPoiCache,
+  setClientPoiCache,
+} from "@/lib/poi/client-cache";
 
 describe("POI zoom config", () => {
   it("disables POI fetches at world zoom", () => {
@@ -106,5 +112,46 @@ describe("POI dedupe and cache", () => {
     );
     expect(places).toHaveLength(1);
     expect(places[0].name).toBe("Eiffel Tower");
+  });
+
+  it("splits dense category sets into parallel Overpass batches", () => {
+    expect(splitCategoryBatches(["attractions", "museums"])).toEqual([
+      ["attractions", "museums"],
+    ]);
+    const batches = splitCategoryBatches([
+      "attractions",
+      "museums",
+      "parks",
+      "historic",
+      "restaurants",
+      "cafes",
+    ]);
+    expect(batches).toHaveLength(2);
+    expect(batches[0]).toEqual(
+      expect.arrayContaining(["attractions", "museums", "parks", "historic"]),
+    );
+    expect(batches[1]).toEqual(
+      expect.arrayContaining(["restaurants", "cafes"]),
+    );
+  });
+});
+
+describe("POI client session cache", () => {
+  beforeEach(() => clearClientPoiCache());
+
+  it("returns cached places for the same viewport key", () => {
+    const key = "14|48.850|2.300|48.860|2.310|attractions";
+    setClientPoiCache(key, [
+      {
+        osmType: "node",
+        osmId: 1,
+        name: "Spot",
+        category: "attractions",
+        lat: 48.855,
+        lon: 2.305,
+      },
+    ]);
+    expect(getClientPoiCache(key)?.[0]?.name).toBe("Spot");
+    expect(getClientPoiCache("other")).toBeNull();
   });
 });

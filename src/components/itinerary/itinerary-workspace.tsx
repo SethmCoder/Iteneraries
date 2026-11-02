@@ -7,6 +7,8 @@ import {
   ArrowDown,
   ArrowUp,
   CalendarDays,
+  ExternalLink,
+  FileInput,
   List,
   Loader2,
   Building2,
@@ -47,6 +49,10 @@ import {
 import type { PoiPlace } from "@/lib/poi/types";
 import type { ItineraryItem, Profile, Trip, TripMember } from "@/types/database";
 import { ActivityTypePicker } from "@/components/itinerary/activity-type-picker";
+import {
+  ImportItineraryDialog,
+  type ImportConfirmItem,
+} from "@/components/itinerary/import-itinerary-dialog";
 import { TripConflictsPanel } from "@/components/itinerary/trip-conflicts-panel";
 import {
   PlanningProgress,
@@ -63,21 +69,21 @@ import {
   type PlanningStageId,
 } from "@/lib/itinerary/planning-profile";
 import {
+  isLeaveTripSection,
+  leaveItineraryHref,
+} from "@/lib/itinerary/leave-routes";
+import {
   getActivityType,
   type ActivityTypeId,
 } from "@/lib/itinerary/activity-types";
-import { savePendingActivityAction } from "@/app/actions/pending-bookings";
 import type { PendingFlight, PendingHotel } from "@/types/database";
 
-type TripSection =
-  | "overview"
-  | "itinerary"
-  | "flights"
-  | "hotels"
-  | "activities"
-  | "bookings";
+type TripSection = "overview" | "itinerary";
 
-const TRIP_SECTIONS: { id: TripSection; label: string }[] = [
+const TRIP_SECTIONS: {
+  id: TripSection | "flights" | "hotels" | "activities" | "bookings";
+  label: string;
+}[] = [
   { id: "overview", label: "Overview" },
   { id: "itinerary", label: "Itinerary" },
   { id: "flights", label: "Flights" },
@@ -137,6 +143,7 @@ export function ItineraryWorkspace({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [activityType, setActivityType] = useState<ActivityTypeId>("sightseeing");
+  const [importOpen, setImportOpen] = useState(false);
   const [tripSection, setTripSection] = useState<TripSection>("itinerary");
   /** Narrow screens: show itinerary or map one at a time instead of squeezed columns. */
   const [mobilePane, setMobilePane] = useState<"itinerary" | "map">("itinerary");
@@ -153,9 +160,6 @@ export function ItineraryWorkspace({
   const [planningProfile, setPlanningProfile] = useState<PlanningProfile>(() =>
     parsePlanningProfile(trip.planning_profile),
   );
-  const [activityTitle, setActivityTitle] = useState("");
-  const [activityLocation, setActivityLocation] = useState("");
-
   const stageStatuses = useMemo(
     () =>
       deriveStageStatuses({
@@ -533,6 +537,50 @@ export function ItineraryWorkspace({
     }
   }
 
+  async function confirmImportedItems(rows: ImportConfirmItem[]) {
+    let added = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      if (isDemoTrip) {
+        setItems((prev) => [
+          ...prev,
+          createLocalItem({
+            title: row.title,
+            item_type: row.item_type,
+            description: row.description,
+            location_name: row.location_name,
+            start_at: row.start_at,
+            end_at: row.end_at,
+            timezone: row.timezone,
+            details: { ...row.details, preview: true },
+          }),
+        ]);
+        added += 1;
+        continue;
+      }
+      const result = await addItineraryItemAction({
+        tripId: trip.id,
+        title: row.title,
+        item_type: row.item_type,
+        description: row.description,
+        location_name: row.location_name,
+        start_at: row.start_at,
+        end_at: row.end_at,
+        timezone: row.timezone,
+        details: row.details,
+      });
+      if (result.duplicate) {
+        skipped += 1;
+        continue;
+      }
+      if (result.item && "title" in result.item) {
+        setItems((prev) => [...prev, result.item as ItineraryItem]);
+        added += 1;
+      }
+    }
+    return { added, skipped };
+  }
+
   async function acceptSuggestion(dayNumber: number, item: SuggestedItem) {
     if (isDemoTrip) {
       setItems((prev) => [
@@ -598,26 +646,26 @@ export function ItineraryWorkspace({
         profile={planningProfile}
         statuses={stageStatuses}
         activeStage={
-          tripSection === "activities"
-            ? "major_activities"
-            : tripSection === "overview"
-              ? "overview"
-              : tripSection === "itinerary"
-                ? "itinerary"
-                : "itinerary"
+          tripSection === "overview" ? "overview" : "itinerary"
         }
         pending={pending}
         onSelectStage={(stage: PlanningStageId) => {
           if (stage === "flights") {
-            window.location.href = `/flights?tripId=${trip.id}&from=plan`;
+            router.push(leaveItineraryHref("flights", trip.id));
             return;
           }
           if (stage === "hotels") {
-            window.location.href = `/hotels?tripId=${trip.id}&from=plan`;
+            router.push(leaveItineraryHref("hotels", trip.id));
             return;
           }
           if (stage === "major_activities") {
-            setTripSection("activities");
+            router.push(leaveItineraryHref("activities", trip.id));
+            return;
+          }
+          if (stage === "lesser_activities") {
+            router.push(
+              leaveItineraryHref("activities", trip.id, { mode: "lesser" }),
+            );
             return;
           }
           setTripSection("itinerary");
@@ -724,15 +772,17 @@ export function ItineraryWorkspace({
             currentUserId={currentUserId}
           />
           <Button variant="secondary" asChild>
-            <Link href={`/flights?tripId=${trip.id}`}>
+            <Link href={leaveItineraryHref("flights", trip.id)}>
               <Plane className="h-4 w-4" />
               Flights Pending
+              <ExternalLink className="h-3.5 w-3.5 opacity-70" aria-hidden />
             </Link>
           </Button>
           <Button variant="secondary" asChild>
-            <Link href={`/hotels?tripId=${trip.id}`}>
+            <Link href={leaveItineraryHref("hotels", trip.id)}>
               <Building2 className="h-4 w-4" />
               Hotels Pending
+              <ExternalLink className="h-3.5 w-3.5 opacity-70" aria-hidden />
             </Link>
           </Button>
           <Button
@@ -755,10 +805,19 @@ export function ItineraryWorkspace({
             </Button>
           ) : null}
           {canEdit ? (
-            <Button onClick={() => void runSuggest()} disabled={suggesting}>
-              <Sparkles className="h-4 w-4" />
-              {suggesting ? "Suggesting…" : "Suggest Itinerary"}
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => setImportOpen(true)}
+              >
+                <FileInput className="h-4 w-4" />
+                Import Itinerary
+              </Button>
+              <Button onClick={() => void runSuggest()} disabled={suggesting}>
+                <Sparkles className="h-4 w-4" />
+                {suggesting ? "Suggesting…" : "Suggest Itinerary"}
+              </Button>
+            </>
           ) : null}
         </div>
       </div>
@@ -767,34 +826,40 @@ export function ItineraryWorkspace({
         className="scrollbar-none flex gap-1 overflow-x-auto rounded-[12px] border border-border bg-card p-1.5 shadow-sm"
         aria-label="Trip sections"
       >
-        {TRIP_SECTIONS.map((section) => (
-          <button
-            key={section.id}
-            type="button"
-            onClick={() => {
-              if (section.id === "flights") {
-                window.location.href = `/flights?tripId=${trip.id}&from=plan`;
-                return;
-              }
-              if (section.id === "hotels") {
-                window.location.href = `/hotels?tripId=${trip.id}&from=plan`;
-                return;
-              }
-              if (section.id === "bookings") {
-                window.location.href = `/bookings?tripId=${trip.id}`;
-                return;
-              }
-              setTripSection(section.id);
-            }}
-            className={`shrink-0 rounded-[8px] px-3 py-2 text-sm font-semibold transition-colors ${
-              tripSection === section.id
-                ? "bg-brand text-white"
-                : "text-muted hover:bg-brand-light hover:text-brand"
-            }`}
-          >
-            {section.label}
-          </button>
-        ))}
+        {TRIP_SECTIONS.map((section) => {
+          const className = `inline-flex shrink-0 items-center gap-1.5 rounded-[8px] px-3 py-2 text-sm font-semibold transition-colors ${
+            !isLeaveTripSection(section.id) && tripSection === section.id
+              ? "bg-brand text-white"
+              : "text-muted hover:bg-brand-light hover:text-brand"
+          }`;
+          if (isLeaveTripSection(section.id)) {
+            const leaveId = section.id;
+            return (
+              <Link
+                key={leaveId}
+                href={leaveItineraryHref(leaveId, trip.id)}
+                className={className}
+              >
+                {section.label}
+                <ExternalLink
+                  className="h-3.5 w-3.5 opacity-70"
+                  aria-hidden
+                />
+              </Link>
+            );
+          }
+          const stayId = section.id as TripSection;
+          return (
+            <button
+              key={stayId}
+              type="button"
+              onClick={() => setTripSection(stayId)}
+              className={className}
+            >
+              {section.label}
+            </button>
+          );
+        })}
       </nav>
 
       {routeError ? (
@@ -906,7 +971,10 @@ export function ItineraryWorkspace({
                 confirmed · {pendingFlights.length} total
               </p>
               <Button size="sm" variant="secondary" className="mt-2" asChild>
-                <Link href={`/flights?tripId=${trip.id}&from=plan`}>Manage</Link>
+                <Link href={leaveItineraryHref("flights", trip.id)}>
+                  Manage
+                  <ExternalLink className="h-3 w-3 opacity-70" aria-hidden />
+                </Link>
               </Button>
             </div>
             <div className="rounded-[10px] border border-border p-3">
@@ -916,7 +984,10 @@ export function ItineraryWorkspace({
                 confirmed · {pendingHotels.length} total
               </p>
               <Button size="sm" variant="secondary" className="mt-2" asChild>
-                <Link href={`/hotels?tripId=${trip.id}&from=plan`}>Manage</Link>
+                <Link href={leaveItineraryHref("hotels", trip.id)}>
+                  Manage
+                  <ExternalLink className="h-3 w-3 opacity-70" aria-hidden />
+                </Link>
               </Button>
             </div>
             <div className="rounded-[10px] border border-border p-3">
@@ -945,93 +1016,7 @@ export function ItineraryWorkspace({
         </section>
       ) : null}
 
-      {tripSection === "activities" ? (
-        <section className="space-y-3 rounded-[12px] border border-border bg-card p-4 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h2 className="font-semibold">Major activities</h2>
-              <p className="text-sm text-muted">
-                Lock Must-Dos and bookable experiences before choosing a hotel.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" asChild>
-                <Link href={`/suggester?tripId=${trip.id}&mode=major`}>
-                  Suggest majors
-                </Link>
-              </Button>
-              <Button size="sm" variant="secondary" asChild>
-                <Link href="/saved-places">Saved Places</Link>
-              </Button>
-            </div>
-          </div>
-          {(planningProfile.mustDos?.length ?? 0) > 0 ? (
-            <ul className="space-y-1 text-sm">
-              {planningProfile.mustDos!.map((m) => (
-                <li
-                  key={m}
-                  className="rounded-[8px] border border-accent/40 bg-accent/15 px-3 py-2"
-                >
-                  <span className="font-medium">{m}</span>
-                  <span className="ml-2 text-xs text-muted">required</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted">
-              No Must-Dos yet. Add them in trip setup or the Itinerary Suggester.
-            </p>
-          )}
-          {canEdit ? (
-            <div className="space-y-2 rounded-[10px] border border-border p-3">
-              <p className="text-sm font-semibold">Track a bookable activity</p>
-              <Input
-                placeholder="Title (e.g. Louvre tickets)"
-                value={activityTitle}
-                onChange={(e) => setActivityTitle(e.target.value)}
-              />
-              <Input
-                placeholder="Location (optional)"
-                value={activityLocation}
-                onChange={(e) => setActivityLocation(e.target.value)}
-              />
-              <Button
-                size="sm"
-                disabled={pending || !activityTitle.trim() || isDemoTrip}
-                onClick={() =>
-                  startTransition(async () => {
-                    await savePendingActivityAction({
-                      tripId: trip.id,
-                      title: activityTitle.trim(),
-                      activityType: "attraction",
-                      location: activityLocation.trim() || null,
-                      bookingStatus: "needs_booking",
-                    });
-                    setActivityTitle("");
-                    setActivityLocation("");
-                    await persistPlanningProfile({
-                      ...planningProfile,
-                      guidedPhase: "major_activities",
-                    });
-                    router.refresh();
-                  })
-                }
-              >
-                Save to bookings checklist
-              </Button>
-            </div>
-          ) : null}
-          <Button
-            variant="secondary"
-            onClick={() => setTripSection("itinerary")}
-          >
-            Continue to itinerary / lesser activities
-          </Button>
-        </section>
-      ) : null}
-
-      {tripSection === "itinerary" ||
-      !["overview", "activities"].includes(tripSection) ? (
+      {tripSection === "itinerary" ? (
       <>
       <div
         className="flex gap-1 rounded-[12px] border border-border bg-card p-1 lg:hidden"
@@ -1075,10 +1060,25 @@ export function ItineraryWorkspace({
           }`}
         >
           <div className="rounded-[12px] border border-border bg-card p-3">
-            <h2 className="text-base font-semibold">Your itinerary</h2>
-            <p className="mt-0.5 text-xs text-muted">
-              Stops for this trip live here — add places, set times, and switch between day and list views.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold">Your itinerary</h2>
+                <p className="mt-0.5 text-xs text-muted">
+                  Stops for this trip live here — add places, set times, and switch between day and list views.
+                </p>
+              </div>
+              {canEdit ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shrink-0"
+                  onClick={() => setImportOpen(true)}
+                >
+                  <FileInput className="h-3.5 w-3.5" />
+                  Import Itinerary
+                </Button>
+              ) : null}
+            </div>
           </div>
           {canEdit ? (
             <div className="rounded-[12px] border border-border bg-card p-3">
@@ -1322,6 +1322,16 @@ export function ItineraryWorkspace({
           </div>
         </DialogContent>
       </Dialog>
+
+      {canEdit ? (
+        <ImportItineraryDialog
+          trip={trip}
+          existingItems={items}
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          onConfirm={confirmImportedItems}
+        />
+      ) : null}
     </div>
   );
 }

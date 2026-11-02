@@ -5,6 +5,10 @@ import { useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet.markercluster";
 import { Loader2 } from "lucide-react";
+import {
+  getClientPoiCache,
+  setClientPoiCache,
+} from "@/lib/poi/client-cache";
 import type { PoiCategory, PoiPlace } from "@/lib/poi/types";
 import { shouldFetchPois } from "@/lib/poi/zoom-config";
 
@@ -98,6 +102,7 @@ export function PoiClusterLayer({
   useEffect(() => {
     if (!enabled) return;
 
+    // Debounce map settle; keep prior markers visible (stale-while-revalidate).
     const timer = setTimeout(async () => {
       const zoom = map.getZoom();
       if (!shouldFetchPois(zoom)) {
@@ -109,6 +114,15 @@ export function PoiClusterLayer({
       const key = `${boundsKey(map)}|${catsKey}`;
       if (key === lastFetchKey.current) return;
       lastFetchKey.current = key;
+
+      const cached = getClientPoiCache(key);
+      if (cached) {
+        setPlaces(cached);
+        setFromCache(true);
+        setError(null);
+        setLoading(false);
+        return;
+      }
 
       const b = map.getBounds();
       abortRef.current?.abort();
@@ -143,7 +157,9 @@ export function PoiClusterLayer({
           places: PoiPlace[];
           fromCache?: boolean;
         };
-        setPlaces(data.places ?? []);
+        const next = data.places ?? [];
+        setClientPoiCache(key, next);
+        setPlaces(next);
         setFromCache(Boolean(data.fromCache));
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
@@ -152,7 +168,7 @@ export function PoiClusterLayer({
       } finally {
         setLoading(false);
       }
-    }, 500);
+    }, 320);
 
     return () => {
       clearTimeout(timer);

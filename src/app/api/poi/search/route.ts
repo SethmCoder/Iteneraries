@@ -45,7 +45,14 @@ export async function POST(request: Request) {
       ...parsed.data,
       signal: request.signal,
     });
-    return NextResponse.json(result);
+    // Hint intermediaries; browsers rarely cache POST, but clients may.
+    return NextResponse.json(result, {
+      headers: {
+        "Cache-Control": result.fromCache
+          ? "private, max-age=120"
+          : "private, max-age=30",
+      },
+    });
   } catch (e) {
     if (
       request.signal.aborted ||

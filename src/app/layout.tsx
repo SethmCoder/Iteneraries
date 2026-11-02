@@ -17,13 +17,8 @@ export const metadata: Metadata = {
   description:
     "Plan, organize, and collaborate on business travel itineraries in one place.",
   applicationName: APP_NAME,
-  icons: {
-    icon: [
-      { url: "/icon.svg", type: "image/svg+xml" },
-      { url: "/icon.png", type: "image/png", sizes: "512x512" },
-    ],
-    apple: [{ url: "/apple-icon", type: "image/png", sizes: "180x180" }],
-  },
+  // Icons come from file conventions so they always win over the default
+  // Next.js favicon on reload: src/app/favicon.ico, icon.png, icon.svg, apple-icon.png
 };
 
 export const viewport: Viewport = {

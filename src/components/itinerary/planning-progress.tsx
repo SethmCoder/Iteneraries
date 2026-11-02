@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import {
   PLANNING_STAGES,
   nextIncompleteStage,
@@ -10,6 +11,7 @@ import {
   type PlanningStageId,
   type StageStatus,
 } from "@/lib/itinerary/planning-profile";
+import { leaveItineraryHref } from "@/lib/itinerary/leave-routes";
 import { Button } from "@/components/ui/button";
 
 function statusClass(status: StageStatus): string {
@@ -24,6 +26,27 @@ function statusClass(status: StageStatus): string {
     default:
       return "border-border bg-card text-muted";
   }
+}
+
+function stageLeaveHref(tripId: string, stage: PlanningStageId | "done") {
+  if (stage === "flights") return leaveItineraryHref("flights", tripId);
+  if (stage === "hotels") return leaveItineraryHref("hotels", tripId);
+  if (stage === "major_activities") {
+    return leaveItineraryHref("activities", tripId, { mode: "major" });
+  }
+  if (stage === "lesser_activities") {
+    return leaveItineraryHref("activities", tripId, { mode: "lesser" });
+  }
+  return `/trips/${tripId}`;
+}
+
+function leavesItinerary(stage: PlanningStageId | "done"): boolean {
+  return (
+    stage === "flights" ||
+    stage === "hotels" ||
+    stage === "major_activities" ||
+    stage === "lesser_activities"
+  );
 }
 
 export function PlanningProgress({
@@ -46,17 +69,6 @@ export function PlanningProgress({
   pending?: boolean;
 }) {
   const next = nextIncompleteStage(statuses, profile);
-  const nextHref = (stage: PlanningStageId | "done") => {
-    if (stage === "flights") return `/flights?tripId=${tripId}&from=plan`;
-    if (stage === "hotels") return `/hotels?tripId=${tripId}&from=plan`;
-    if (stage === "major_activities") {
-      return `/suggester?tripId=${tripId}&mode=major`;
-    }
-    if (stage === "lesser_activities") {
-      return `/suggester?tripId=${tripId}&mode=lesser`;
-    }
-    return `/trips/${tripId}`;
-  };
 
   return (
     <section className="space-y-3 rounded-[12px] border border-border bg-card p-4 shadow-sm">
@@ -70,8 +82,11 @@ export function PlanningProgress({
         </div>
         {next !== "done" ? (
           <Button asChild size="sm">
-            <Link href={nextHref(next)}>
+            <Link href={stageLeaveHref(tripId, next)}>
               Next: {PLANNING_STAGES.find((s) => s.id === next)?.label}
+              {leavesItinerary(next) ? (
+                <ExternalLink className="h-3.5 w-3.5 opacity-70" aria-hidden />
+              ) : null}
             </Link>
           </Button>
         ) : (
@@ -104,8 +119,14 @@ export function PlanningProgress({
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
                   Stage {index + 1}
                 </p>
-                <p className="mt-0.5 font-semibold text-foreground">
+                <p className="mt-0.5 inline-flex items-center gap-1.5 font-semibold text-foreground">
                   {stage.label}
+                  {leavesItinerary(stage.id) ? (
+                    <ExternalLink
+                      className="h-3.5 w-3.5 opacity-60"
+                      aria-hidden
+                    />
+                  ) : null}
                 </p>
                 <span
                   className={`mt-2 inline-flex rounded-[6px] border px-2 py-0.5 text-[11px] font-semibold ${statusClass(status)}`}
@@ -118,7 +139,13 @@ export function PlanningProgress({
               activeStage === stage.id ? (
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   <Button size="sm" variant="secondary" asChild>
-                    <Link href={nextHref(stage.id)}>Open tools</Link>
+                    <Link href={stageLeaveHref(tripId, stage.id)}>
+                      Open tools
+                      <ExternalLink
+                        className="h-3 w-3 opacity-70"
+                        aria-hidden
+                      />
+                    </Link>
                   </Button>
                   <Button
                     size="sm"
