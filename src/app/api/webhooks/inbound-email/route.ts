@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { extractReservationFromEmail } from "@/lib/ai/extract-reservation";
 import { buildItineraryRowsFromExtracted } from "@/lib/email/apply-reservation";
+import {
+  extractOwnerEmailCandidates,
+  parseEmailAddress,
+  resolveUserIdByEmails,
+} from "@/lib/email/identity";
 import { matchTripForReservation } from "@/lib/email/match-trip";
 import { normalizeBookingKey } from "@/lib/email/normalize";
 import {
@@ -11,6 +16,28 @@ import { verifyResendWebhook } from "@/lib/email/webhook";
 import { isAiConfigured, isEmailImportConfigured } from "@/lib/env";
 import { rateLimit } from "@/lib/rate-limit";
 import { createAdminClient, hasServiceRole } from "@/lib/supabase/admin";
+
+function fieldAsString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (value && typeof value === "object") {
+    const obj = value as { address?: unknown; email?: unknown };
+    if (typeof obj.address === "string" && obj.address.trim()) {
+      return obj.address.trim();
+    }
+    if (typeof obj.email === "string" && obj.email.trim()) {
+      return obj.email.trim();
+    }
+  }
+  return null;
+}
+
+function fieldAsStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(fieldAsString).filter((v): v is string => Boolean(v));
+  }
+  const single = fieldAsString(value);
+  return single ? [single] : [];
+}
 
 export async function POST(request: Request) {
   if (!isEmailImportConfigured()) {
@@ -96,33 +123,50 @@ export async function POST(request: Request) {
     }
   }
 
-  const fromAddress =
-    typeof data.from === "string"
-      ? data.from
-      : typeof (data.from as { address?: string } | undefined)?.address ===
-          "string"
-        ? (data.from as { address: string }).address
-        : null;
-
-  if (!userId && fromAddress) {
-    const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    const match = users.users.find(
-      (u) => u.email?.toLowerCase() === fromAddress.toLowerCase(),
-    );
-    userId = match?.id ?? null;
-  }
-
-  if (!userId) {
-    return NextResponse.json(
-      { error: "Unable to associate email with a user" },
-      { status: 422 },
-    );
-  }
-
+  const fromAddress = fieldAsString(data.from);
+  const replyTo = fieldAsStringList(
+    (data as { reply_to?: unknown }).reply_to ??
+      (data as { replyTo?: unknown }).replyTo,
+  );
   const rawText =
     typeof data.text === "string" && data.text.trim() ? data.text : null;
   const rawHtml =
     typeof data.html === "string" && data.html.trim() ? data.html : null;
+  const subject =
+    typeof data.subject === "string" ? data.subject : null;
+
+  // Map forwarder / original sender → Waypoint account (e.g. abcde@gmail.com)
+  if (!userId) {
+    const candidates = extractOwnerEmailCandidates({
+      from: fromAddress,
+      replyTo,
+      subject,
+      text: rawText,
+      html: rawHtml,
+    });
+    const resolved = await resolveUserIdByEmails(candidates, async (page) => {
+      const { data: users } = await admin.auth.admin.listUsers({
+        page,
+        perPage: 200,
+      });
+      const list = users.users ?? [];
+      return {
+        users: list.map((u) => ({ id: u.id, email: u.email })),
+        nextPage: list.length < 200 ? null : page + 1,
+      };
+    });
+    userId = resolved?.userId ?? null;
+  }
+
+  if (!userId) {
+    return NextResponse.json(
+      {
+        error:
+          "Unable to associate email with a user. Forward to your Waypoint plus-address, or forward from the same email as your Waypoint login.",
+      },
+      { status: 422 },
+    );
+  }
 
   const { data: imported, error: importError } = await admin
     .from("imported_emails")
@@ -130,8 +174,8 @@ export async function POST(request: Request) {
       user_id: userId,
       provider_message_id: messageId,
       status: "processing",
-      subject: typeof data.subject === "string" ? data.subject : null,
-      from_address: fromAddress,
+      subject,
+      from_address: parseEmailAddress(fromAddress) ?? fromAddress,
       raw_text: rawText,
       raw_html: rawHtml,
     })
@@ -147,7 +191,6 @@ export async function POST(request: Request) {
       throw new Error("AI not configured for extraction");
     }
     const body = rawText || rawHtml || "";
-    const subject = typeof data.subject === "string" ? data.subject : undefined;
     const extracted = await extractReservationFromEmail(body, subject);
     const bookingKey = normalizeBookingKey(extracted);
 
@@ -175,14 +218,45 @@ export async function POST(request: Request) {
 
     const extractedRecord = extracted as unknown as Record<string, unknown>;
 
-    // Load user trips for smart matching when plus-tag did not bind a trip
+    // Load trips + light itinerary context for timeline/type matching
     const { data: ownedTrips } = await admin
       .from("trips")
       .select("id, name, destination_name, start_date, end_date")
       .eq("owner_id", userId);
 
+    const tripIds = (ownedTrips ?? []).map((t) => t.id as string);
+    const itemTypesByTrip = new Map<string, string[]>();
+    const itemDaysByTrip = new Map<string, string[]>();
+    if (tripIds.length > 0) {
+      const { data: items } = await admin
+        .from("itinerary_items")
+        .select("trip_id, item_type, start_at")
+        .in("trip_id", tripIds);
+      for (const item of items ?? []) {
+        const tid = item.trip_id as string;
+        const types = itemTypesByTrip.get(tid) ?? [];
+        if (typeof item.item_type === "string") types.push(item.item_type);
+        itemTypesByTrip.set(tid, types);
+        if (typeof item.start_at === "string" && item.start_at.length >= 10) {
+          const days = itemDaysByTrip.get(tid) ?? [];
+          days.push(item.start_at.slice(0, 10));
+          itemDaysByTrip.set(tid, days);
+        }
+      }
+    }
+
+    const tripsForMatch = (ownedTrips ?? []).map((t) => ({
+      id: t.id as string,
+      name: (t.name as string | null) ?? null,
+      destination_name: (t.destination_name as string | null) ?? null,
+      start_date: (t.start_date as string | null) ?? null,
+      end_date: (t.end_date as string | null) ?? null,
+      item_types: itemTypesByTrip.get(t.id as string) ?? [],
+      item_days: [...new Set(itemDaysByTrip.get(t.id as string) ?? [])],
+    }));
+
     const match = await matchTripForReservation({
-      trips: ownedTrips ?? [],
+      trips: tripsForMatch,
       extracted: extractedRecord,
       preferTripId: tripId,
     });

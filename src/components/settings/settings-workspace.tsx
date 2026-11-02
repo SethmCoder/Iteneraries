@@ -62,6 +62,9 @@ export function SettingsWorkspace({
   preferences: UserPreferences | null;
   pendingReviews: Array<{
     id: string;
+    trip_id?: string | null;
+    match_reason?: string | null;
+    matched_trip_confidence?: number | null;
     extracted_data: Record<string, unknown>;
     imported_emails?: { subject?: string; from_address?: string } | null;
   }>;
@@ -543,6 +546,9 @@ export function SettingsWorkspace({
               <code className="rounded bg-brand-light px-1.5 py-0.5 text-brand">
                 {emailImport.address}
               </code>
+              . Waypoint matches the forwarder (e.g. your Gmail) to your account,
+              then AI assigns each booking to the itinerary that best fits the
+              dates and reservation type.
             </p>
             {!emailImport.aiConfigured ? (
               <p className="text-warning">
@@ -577,16 +583,27 @@ function ImportReviewCard({
 }: {
   review: {
     id: string;
+    trip_id?: string | null;
+    match_reason?: string | null;
+    matched_trip_confidence?: number | null;
     extracted_data: Record<string, unknown>;
     imported_emails?: { subject?: string; from_address?: string } | null;
   };
   trips: Array<{ id: string; name: string | null; destination_name: string | null }>;
 }) {
-  const [tripId, setTripId] = useState(trips[0]?.id ?? "");
+  const suggestedTripId =
+    review.trip_id && trips.some((t) => t.id === review.trip_id)
+      ? review.trip_id
+      : (trips[0]?.id ?? "");
+  const [tripId, setTripId] = useState(suggestedTripId);
   const [json, setJson] = useState(
     JSON.stringify(review.extracted_data, null, 2),
   );
   const [error, setError] = useState<string | null>(null);
+  const confidencePct =
+    review.matched_trip_confidence != null
+      ? Math.round(review.matched_trip_confidence * 100)
+      : null;
 
   return (
     <div className="rounded-[10px] border border-border p-3">
@@ -596,6 +613,12 @@ function ImportReviewCard({
       <p className="text-xs text-muted">
         {review.imported_emails?.from_address}
       </p>
+      {review.match_reason ? (
+        <p className="mt-1 text-xs text-muted">
+          Suggested trip: {review.match_reason}
+          {confidencePct != null ? ` (${confidencePct}% confidence)` : ""}
+        </p>
+      ) : null}
       <textarea
         className="mt-2 h-40 w-full rounded-[8px] border border-input p-2 font-mono text-xs"
         value={json}
